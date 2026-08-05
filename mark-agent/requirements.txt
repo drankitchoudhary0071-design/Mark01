@@ -1,0 +1,10 @@
+# mark-agent dependencies
+python-binance>=1.0.19
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Microphone support for SpeechRecognition (PyAudio)
+# On Mac: brew install portaudio && pip install pyaudio
+PyAudio>=0.2.13
