@@ -1,0 +1,4 @@
+google-genai>=1.0.0,<3.0.0
+pywhatkit>=5.4
+gTTS>=2.5.0
+duckduckgo-search>=6.0.0
