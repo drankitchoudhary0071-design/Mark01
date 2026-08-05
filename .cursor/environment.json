@@ -1,0 +1,4 @@
+{
+  "name": "Mark01",
+  "install": "git rev-parse --is-inside-work-tree >/dev/null && test -f README.md"
+}
