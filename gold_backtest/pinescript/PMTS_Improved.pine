@@ -1,0 +1,341 @@
+//@version=5
+// PMTS Improved — fixed for TradingView (was producing 0 trades)
+// Chart: BINANCE:PAXGUSDT · 15 minutes
+//
+// Fixes vs prior version:
+// 1) Consolidation measured AFTER the impulse bar (not including it)
+// 2) Simpler, more reliable HTF impulse → fib zone activation
+// 3) "Relaxed" toggle ON by default so you can see trades; tighten later
+// 4) Debug counters in the info table
+
+strategy(
+     title                   = "PMTS Improved v2",
+     shorttitle              = "PMTS-IMP",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 2,
+     max_bars_back           = 5000
+ )
+
+// ═══════════════ Inputs ═══════════════
+grpMode = "Mode"
+relaxed = input.bool(true, "Relaxed mode (more trades — recommended first)", group = grpMode)
+
+grpHTF = "1H Impulse / Fib"
+htfTf         = input.timeframe("60", "HTF", group = grpHTF)
+dispMult      = input.float(1.8, "Displacement × median body", step = 0.1, group = grpHTF)
+dispLookback  = input.int(20, "Median body lookback", group = grpHTF)
+minImpulseAtr = input.float(1.2, "Min impulse ATR mult", step = 0.1, group = grpHTF)
+rangeMinBars  = input.int(2, "Range min bars (after impulse)", group = grpHTF)
+rangeMaxBars  = input.int(16, "Range max bars", group = grpHTF)
+rangeAtrMult  = input.float(2.0, "Max range width × ATR", step = 0.1, group = grpHTF)
+fibLo         = input.float(0.618, "Fib low", step = 0.001, group = grpHTF)
+fibHi         = input.float(0.705, "Fib high", step = 0.001, group = grpHTF)
+setupHours    = input.int(72, "Zone lifetime (hours)", group = grpHTF)
+// Alternate: activate zone on impulse+break without waiting for tight box
+simpleImpulse = input.bool(true, "Simple impulse mode (skip tight box wait)", group = grpHTF)
+
+grpLTF = "15m Entry"
+bosLen        = input.int(5, "BOS lookback bars", group = grpLTF)
+pinRatio      = input.float(2.0, "Pin wick × body", group = grpLTF)
+useBosRetest  = input.bool(false, "Require BOS retest", group = grpLTF)
+allowLong     = input.bool(true, "Allow longs", group = grpLTF)
+allowShort    = input.bool(true, "Allow shorts", group = grpLTF)
+needPattern   = input.bool(true, "Require candle pattern", group = grpLTF)
+
+grpFilt = "Filters"
+useSession = input.bool(true, "Session filter", group = grpFilt)
+sessStart  = input.int(7, "Session start UTC", group = grpFilt)
+sessEnd    = input.int(20, "Session end UTC", group = grpFilt)
+useHtfSma  = input.bool(false, "HTF SMA(100) filter", group = grpFilt)
+smaLen     = input.int(100, "SMA length", group = grpFilt)
+useVolGate = input.bool(false, "ATR percentile gate", group = grpFilt)
+volPctMin  = input.float(20.0, "Min ATR %ile", group = grpFilt)
+
+grpRisk = "Risk"
+rrTarget   = input.float(2.0, "RR", group = grpRisk)
+minStopPct = input.float(0.35, "Min stop %", step = 0.05, group = grpRisk) / 100.0
+riskPct    = input.float(1.0, "Risk % equity", group = grpRisk) / 100.0
+cooldown   = input.int(4, "Cooldown bars", group = grpRisk)
+
+// Apply relaxed defaults via effective flags
+effBosRetest = relaxed ? false : useBosRetest
+effSession   = relaxed ? false : useSession
+effSma       = relaxed ? false : useHtfSma
+effVol       = relaxed ? false : useVolGate
+effPattern   = relaxed ? false : needPattern
+effDispMult  = relaxed ? math.min(dispMult, 1.6) : dispMult
+effFibHi     = relaxed ? 0.79 : fibHi
+
+// ═══════════════ HTF data ═══════════════
+f_htf() =>
+    b = math.abs(close - open)
+    mb = ta.median(b, dispLookback)
+    a = ta.atr(14)
+    s = ta.sma(close, smaLen)
+    [open, high, low, close, b, mb, a, s, time]
+
+[htfO, htfH, htfL, htfC, htfBody, htfMed, htfAtr, htfSma, htfT] =
+     request.security(syminfo.tickerid, htfTf, f_htf(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+newHtf = ta.change(htfT) != 0
+htfAtrPct = ta.percentrank(htfAtr, 200)
+
+// ═══════════════ HTF state machine ═══════════════
+// 0 idle | 1 collecting post-impulse range | 2 wait break | 3 zone live
+var int   phase = 0
+var int   dir = 0
+var int   rb = 0
+var float rHi = na
+var float rLo = na
+var float iStart = na
+var float iEnd = na
+var float oHi = na
+var float oLo = na
+var float zTop = na
+var float zBot = na
+var int   zExp = na
+var float aObHi = na
+var float aObLo = na
+var int   zonesMade = 0
+var int   impulsesSeen = 0
+
+f_activate_zone(d, startP, endP) =>
+    move = math.abs(endP - startP)
+    f1 = d == 1 ? endP - fibLo * move : endP + fibLo * move
+    f2 = d == 1 ? endP - effFibHi * move : endP + effFibHi * move
+    zt = math.max(f1, f2)
+    zb = math.min(f1, f2)
+    [zt, zb]
+if newHtf and not na(htfMed) and htfMed > 0 and not na(htfAtr) and htfAtr > 0
+    bullDisp = htfC > htfO and htfBody >= effDispMult * htfMed and htfBody >= effDispMult * 0.35 * htfAtr
+    bearDisp = htfC < htfO and htfBody >= effDispMult * htfMed and htfBody >= effDispMult * 0.35 * htfAtr
+
+    // expire
+    if phase == 3 and not na(zExp) and time >= zExp
+        phase := 0
+        zTop := na
+        zBot := na
+
+    if phase == 0
+        if bullDisp or bearDisp
+            impulsesSeen += 1
+            dir := bullDisp ? 1 : -1
+            // Impulse origin: opposite extreme of this bar / recent
+            iStart := bullDisp ? math.min(htfL, htfL[1]) : math.max(htfH, htfH[1])
+            iEnd := bullDisp ? htfH : htfL
+            oHi := htfH
+            oLo := htfL
+            // IMPORTANT: start empty range — next bars only
+            rHi := na
+            rLo := na
+            rb := 0
+            if simpleImpulse
+                // Activate zone immediately after displacement (TV-friendly)
+                // Use a quick structural confirmation: close beyond open of impulse in direction
+                [zt, zb] = f_activate_zone(dir, iStart, iEnd)
+                zTop := zt
+                zBot := zb
+                aObHi := oHi
+                aObLo := oLo
+                zExp := time + setupHours * 60 * 60 * 1000
+                phase := 3
+                zonesMade += 1
+            else
+                phase := 1
+
+    else if phase == 1
+        // Post-impulse consolidation (exclude impulse bar)
+        rb += 1
+        rHi := na(rHi) ? htfH : math.max(rHi, htfH)
+        rLo := na(rLo) ? htfL : math.min(rLo, htfL)
+        if dir == 1
+            iEnd := math.max(iEnd, htfH)
+        else
+            iEnd := math.min(iEnd, htfL)
+
+        width = rHi - rLo
+        compact = width <= rangeAtrMult * htfAtr
+        if rb >= rangeMinBars and compact
+            phase := 2
+        else if rb > rangeMaxBars
+            phase := 0
+            rb := 0
+
+    else if phase == 2
+        rb += 1
+        broken = dir == 1 ? htfC > rHi : htfC < rLo
+        if broken
+            if dir == 1
+                iEnd := math.max(iEnd, htfH)
+            else
+                iEnd := math.min(iEnd, htfL)
+            move = math.abs(iEnd - iStart)
+            if move > 0
+                [zt2, zb2] = f_activate_zone(dir, iStart, iEnd)
+                zTop := zt2
+                zBot := zb2
+                aObHi := oHi
+                aObLo := oLo
+                zExp := time + setupHours * 60 * 60 * 1000
+                phase := 3
+                zonesMade += 1
+            else
+                phase := 0
+        else if rb > rangeMaxBars + 12
+            phase := 0
+zoneOn = phase == 3 and not na(zTop) and not na(zBot) and (na(zExp) or time < zExp)
+
+// ═══════════════ 15m entry ═══════════════
+atr15 = ta.atr(14)
+utcH = hour(time, "UTC")
+inSess = not effSession or (utcH >= sessStart and utcH < sessEnd)
+volOk = not effVol or htfAtrPct >= volPctMin
+longTrend = not effSma or (not na(htfSma) and close > htfSma)
+shortTrend = not effSma or (not na(htfSma) and close < htfSma)
+
+// BOS: break of recent N-bar extreme (simple, reliable)
+bosUp = close > ta.highest(high[1], bosLen)
+bosDn = close < ta.lowest(low[1], bosLen)
+
+var bool bosL = false
+var bool bosS = false
+var int bosLbar = na
+var int bosSbar = na
+if not zoneOn
+    bosL := false
+    bosS := false
+    bosLbar := na
+    bosSbar := na
+if zoneOn and dir == 1 and bosUp and not bosL
+    bosL := true
+    bosLbar := bar_index
+if zoneOn and dir == -1 and bosDn and not bosS
+    bosS := true
+    bosSbar := bar_index
+
+touchZone = zoneOn and low <= zTop and high >= zBot
+
+body = math.abs(close - open)
+uw = high - math.max(close, open)
+lw = math.min(close, open) - low
+eps = syminfo.mintick
+
+bullEng = close > open and close[1] < open[1] and close >= open[1] and open <= close[1]
+bearEng = close < open and close[1] > open[1] and close <= open[1] and open >= close[1]
+bullPin = lw >= pinRatio * math.max(body, eps) and close >= open
+bearPin = uw >= pinRatio * math.max(body, eps) and close <= open
+bullRej = lw >= 1.5 * math.max(body, eps) and close > open
+bearRej = uw >= 1.5 * math.max(body, eps) and close < open
+
+longPat = not effPattern or bullEng or bullPin or bullRej or close > open
+shortPat = not effPattern or bearEng or bearPin or bearRej or close < open
+
+retestL = not effBosRetest or (bosL and not na(bosLbar) and bar_index > bosLbar)
+retestS = not effBosRetest or (bosS and not na(bosSbar) and bar_index > bosSbar)
+
+var int lastBar = na
+cool = na(lastBar) or bar_index - lastBar >= cooldown
+
+longSetupBase = allowLong and zoneOn and dir == 1 and bosL and retestL and touchZone and longPat and inSess and volOk and longTrend and cool and strategy.position_size == 0
+shortSetupBase = allowShort and zoneOn and dir == -1 and bosS and retestS and touchZone and shortPat and inSess and volOk and shortTrend and cool and strategy.position_size == 0
+
+// Relaxed: zone + touch + directional BOS candle is enough
+longSetupEasy = relaxed and allowLong and zoneOn and dir == 1 and touchZone and bosUp and inSess and cool and strategy.position_size == 0
+shortSetupEasy = relaxed and allowShort and zoneOn and dir == -1 and touchZone and bosDn and inSess and cool and strategy.position_size == 0
+
+longSetup = longSetupBase or longSetupEasy
+shortSetup = shortSetupBase or shortSetupEasy
+longStop = math.min(math.min(nz(aObLo, zBot), zBot) - 0.05 * nz(atr15, 0), close * (1.0 - minStopPct))
+longRisk = close - longStop
+longOk = longRisk > 0 and longRisk / close >= minStopPct * 0.9
+longTp = close + rrTarget * longRisk
+
+shortStop = math.max(math.max(nz(aObHi, zTop), zTop) + 0.05 * nz(atr15, 0), close * (1.0 + minStopPct))
+shortRisk = shortStop - close
+shortOk = shortRisk > 0 and shortRisk / close >= minStopPct * 0.9
+shortTp = close - rrTarget * shortRisk
+
+goLong = longSetup and longOk
+goShort = shortSetup and shortOk
+
+qL = longRisk > 0 ? strategy.equity * riskPct / longRisk : na
+qS = shortRisk > 0 ? strategy.equity * riskPct / shortRisk : na
+
+if goLong and not na(qL) and qL > 0
+    strategy.entry("Long", strategy.long, qty = qL)
+    strategy.exit("XL", "Long", stop = longStop, limit = longTp)
+    lastBar := bar_index
+    phase := 0
+    zTop := na
+    zBot := na
+    bosL := false
+
+if goShort and not na(qS) and qS > 0
+    strategy.entry("Short", strategy.short, qty = qS)
+    strategy.exit("XS", "Short", stop = shortStop, limit = shortTp)
+    lastBar := bar_index
+    phase := 0
+    zTop := na
+    zBot := na
+    bosS := false
+
+// ═══════════════ Visuals ═══════════════
+plotshape(goLong, style = shape.triangleup, location = location.belowbar, color = color.lime, size = size.small, text = "L")
+plotshape(goShort, style = shape.triangledown, location = location.abovebar, color = color.red, size = size.small, text = "S")
+
+ztp = plot(zoneOn ? zTop : na, "ZoneTop", color = color.new(color.purple, 20), style = plot.style_linebr, linewidth = 2)
+zbp = plot(zoneOn ? zBot : na, "ZoneBot", color = color.new(color.purple, 20), style = plot.style_linebr, linewidth = 2)
+fill(ztp, zbp, color = zoneOn ? color.new(color.purple, 82) : na)
+
+plot(htfSma, "HTF SMA", color = color.new(color.orange, 50))
+bgcolor(zoneOn ? color.new(color.purple, 94) : na)
+bgcolor(inSess ? color.new(color.blue, 96) : na)
+
+var float sl = na
+var float tp = na
+if goLong
+    sl := longStop
+    tp := longTp
+if goShort
+    sl := shortStop
+    tp := shortTp
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    sl := na
+    tp := na
+plot(strategy.position_size != 0 ? sl : na, "SL", color = color.red, style = plot.style_linebr, linewidth = 2)
+plot(strategy.position_size != 0 ? tp : na, "TP", color = color.lime, style = plot.style_linebr, linewidth = 2)
+
+var table t = table.new(position.top_right, 2, 10, bgcolor = color.new(#0d1117, 10), border_width = 1)
+if barstate.islast
+    table.cell(t, 0, 0, "Relaxed", text_color = color.gray)
+    table.cell(t, 1, 0, relaxed ? "ON" : "OFF", text_color = relaxed ? color.lime : color.orange)
+    table.cell(t, 0, 1, "Phase", text_color = color.gray)
+    table.cell(t, 1, 1, phase == 0 ? "idle" : phase == 1 ? "range" : phase == 2 ? "waitBRK" : "ZONE", text_color = color.white)
+    table.cell(t, 0, 2, "Impulses", text_color = color.gray)
+    table.cell(t, 1, 2, str.tostring(impulsesSeen), text_color = color.aqua)
+    table.cell(t, 0, 3, "Zones made", text_color = color.gray)
+    table.cell(t, 1, 3, str.tostring(zonesMade), text_color = zonesMade > 0 ? color.lime : color.red)
+    table.cell(t, 0, 4, "Zone now", text_color = color.gray)
+    table.cell(t, 1, 4, zoneOn ? "YES" : "no", text_color = zoneOn ? color.lime : color.gray)
+    table.cell(t, 0, 5, "Dir", text_color = color.gray)
+    table.cell(t, 1, 5, dir == 1 ? "LONG" : dir == -1 ? "SHORT" : "-", text_color = dir == 1 ? color.lime : dir == -1 ? color.red : color.gray)
+    table.cell(t, 0, 6, "BOS L/S", text_color = color.gray)
+    table.cell(t, 1, 6, (bosL ? "L✓" : "L·") + " " + (bosS ? "S✓" : "S·"), text_color = color.white)
+    table.cell(t, 0, 7, "Trades", text_color = color.gray)
+    table.cell(t, 1, 7, str.tostring(strategy.closedtrades), text_color = strategy.closedtrades > 0 ? color.lime : color.red)
+    wr = strategy.closedtrades > 0 ? 100.0 * strategy.wintrades / strategy.closedtrades : 0.0
+    table.cell(t, 0, 8, "Winrate", text_color = color.gray)
+    table.cell(t, 1, 8, str.tostring(wr, "#.1") + "%", text_color = color.white)
+    table.cell(t, 0, 9, "Net P&L", text_color = color.gray)
+    table.cell(t, 1, 9, str.tostring(strategy.netprofit, "#.##"), text_color = strategy.netprofit >= 0 ? color.lime : color.red)
+
+alertcondition(goLong, "PMTS Long", "PMTS LONG {{ticker}} {{close}}")
+alertcondition(goShort, "PMTS Short", "PMTS SHORT {{ticker}} {{close}}")

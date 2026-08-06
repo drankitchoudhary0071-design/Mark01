@@ -1,0 +1,7 @@
+Strategy,Period,Trades,Win%,PF,Avg R,MaxDD%,Sharpe,Return%
+PMTS baseline-opt,IS,34,29.4,0.41,-0.32,-11.9,-2.51,-10.3
+PMTS baseline-opt,OOS,10,40.0,0.41,-0.24,-3.0,-3.13,-2.4
+PMTS improved,IS,6,33.3,0.68,-0.16,-3.1,-0.47,-1.0
+PMTS improved,OOS,3,33.3,0.40,-0.29,-1.5,-1.81,-0.9
+Gold Donchian (new),IS,138,41.3,0.88,-0.06,-14.3,-0.76,-8.4
+Gold Donchian (new),OOS,29,34.5,0.60,-0.25,-9.4,-3.00,-7.1
