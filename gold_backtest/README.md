@@ -20,6 +20,8 @@ Outputs land in `gold_backtest/results/` (report, metrics JSON, trade CSVs) and 
 4. **Split** — ~10 months in-sample (optimization) / ~2 months pure out-of-sample
 5. **Improve** — session, BOS-retest, tight fib, volatility gates; before/after compare
 6. **New strategy** — Gold Donchian trend (1H breakout + 15m retest), same evaluation protocol
+7. **High-WR Momentum** — indicator stack targeting ≥50% WR at fixed **1:2 RR**
+   (`python -m gold_backtest.src.run_high_wr`)
 
 ## Cost model
 

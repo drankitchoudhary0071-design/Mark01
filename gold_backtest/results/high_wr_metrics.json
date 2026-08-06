@@ -1,0 +1,60 @@
+{
+  "params": {
+    "adx_period": 14,
+    "adx_min": 35.0,
+    "sma_fast": 50,
+    "sma_slow": 100,
+    "rsi_period": 14,
+    "rsi_lo": 50.0,
+    "rsi_hi": 70.0,
+    "session_start": 8,
+    "session_end": 17,
+    "swing_look": 8,
+    "min_stop_pct": 0.01,
+    "max_stop_pct": 0.02,
+    "rr_target": 2.0,
+    "cooldown_bars": 8,
+    "stop_atr_buffer": 0.15
+  },
+  "is": {
+    "total_trades": 47,
+    "win_rate": 0.5106382978723404,
+    "profit_factor": 1.3371987948867459,
+    "avg_rr_realized": 0.21407806836581722,
+    "avg_win_R": 1.5121127512082893,
+    "avg_loss_R": -1.1403929050350228,
+    "max_drawdown": -0.10222076560261852,
+    "sharpe_daily": 1.2267130668304955,
+    "total_return": 0.10093017766478485,
+    "final_equity": 11009.301776647848,
+    "initial_equity": 10000.0,
+    "avg_pnl": 21.474505886124355,
+    "expectancy_R": 0.21407806836581722,
+    "long_trades": 47,
+    "short_trades": 0,
+    "stop_exits": 21,
+    "tp_exits": 22
+  },
+  "oos": {
+    "total_trades": 7,
+    "win_rate": 0.5714285714285714,
+    "profit_factor": 1.7302539610214624,
+    "avg_rr_realized": 0.3937432549322065,
+    "avg_win_R": 1.6113452773613357,
+    "avg_loss_R": -1.2297261083066322,
+    "max_drawdown": -0.02441137031092249,
+    "sharpe_daily": 1.6792682302216468,
+    "total_return": 0.027182419461821983,
+    "final_equity": 10271.824194618219,
+    "initial_equity": 10000.0,
+    "avg_pnl": 38.83202780260275,
+    "expectancy_R": 0.3937432549322065,
+    "long_trades": 7,
+    "short_trades": 0,
+    "stop_exits": 3,
+    "tp_exits": 4
+  },
+  "split": {
+    "is_end": "2026-06-06 11:32:30+00:00"
+  }
+}
