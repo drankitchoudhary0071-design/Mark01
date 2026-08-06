@@ -4,8 +4,8 @@ PMTS — Pure Math Trading System
 
 Step 1 (1H): Order blocks via displacement → range → structural break
 Step 2 (1H): Fibonacci golden zone 61.8%–79% of impulsive move
-Step 3 (5m): Break of Structure (BOS) confirming continuation
-Step 4 (5m): Candlestick rejection pattern inside golden zone → entry
+Step 3 (15m): Break of Structure (BOS) confirming continuation
+Step 4 (15m): Candlestick rejection pattern inside golden zone → entry
 """
 
 from __future__ import annotations
@@ -63,8 +63,8 @@ class PMTSParams:
     # Fib
     fib_low: float = 0.618
     fib_high: float = 0.79
-    # 5m BOS
-    bos_swing_lookback: int = 5
+    # 15m BOS
+    bos_swing_lookback: int = 3
     # Risk
     rr_target: float = 2.0
     max_stop_atr_mult: float = 3.0  # reject setups with absurd stops
@@ -376,7 +376,7 @@ def detect_pattern(
 
 def generate_signals(
     df_1h: pd.DataFrame,
-    df_5m: pd.DataFrame,
+    df_15m: pd.DataFrame,
     params: PMTSParams | None = None,
 ) -> list[Signal]:
     """Full 4-step PMTS signal generation."""
@@ -385,18 +385,18 @@ def generate_signals(
     if not setups:
         return []
 
-    df5 = df_5m.copy().reset_index(drop=True)
-    df5["atr"] = atr(df5, params.atr_period)
+    dfl = df_15m.copy().reset_index(drop=True)
+    dfl["atr"] = atr(dfl, params.atr_period)
     # Volatility filter prep on 1H ATR percentile + optional SMA trend
     df1 = df_1h.copy()
     df1["atr"] = atr(df1, params.atr_period)
     df1["atr_pct"] = df1["atr"].rank(pct=True)
     df1["sma"] = df1["close"].rolling(params.htf_sma_period, min_periods=params.htf_sma_period).mean()
 
-    highs = df5["high"].values
-    lows = df5["low"].values
-    closes = df5["close"].values
-    n = len(df5)
+    highs = dfl["high"].values
+    lows = dfl["low"].values
+    closes = dfl["close"].values
+    n = len(dfl)
     sh = swing_highs(highs, params.bos_swing_lookback)
     sl = swing_lows(lows, params.bos_swing_lookback)
 
@@ -406,13 +406,13 @@ def generate_signals(
     for s_i, setup in enumerate(setups):
         if params.long_only and setup.direction != "long":
             continue
-        # Map HTF break time into 5m index
-        start_mask = df5["timestamp"] >= setup.structure_break_time
+        # Map HTF break time into 15m index
+        start_mask = dfl["timestamp"] >= setup.structure_break_time
         if not start_mask.any():
             continue
         start_i = int(np.argmax(start_mask.to_numpy()))
         end_time = setup.valid_until or (setup.structure_break_time + pd.Timedelta(hours=72))
-        end_mask = df5["timestamp"] <= end_time
+        end_mask = dfl["timestamp"] <= end_time
         end_i = int(np.where(end_mask.to_numpy())[0][-1]) if end_mask.any() else n - 1
 
         # Optional vol filter at setup time
@@ -433,7 +433,7 @@ def generate_signals(
         last_swing = None
 
         for i in range(start_i + params.bos_swing_lookback, end_i + 1):
-            ts = pd.Timestamp(df5.at[i, "timestamp"])
+            ts = pd.Timestamp(dfl.at[i, "timestamp"])
             if ts.tzinfo is None:
                 ts = ts.tz_localize("UTC")
             else:
@@ -444,7 +444,7 @@ def generate_signals(
             # Track swings for BOS
             if setup.direction == "long":
                 # find most recent swing high before i
-                for j in range(i - 1, max(start_i, i - 80), -1):
+                for j in range(i - 1, max(start_i, i - 40), -1):
                     if sh[j]:
                         last_swing = highs[j]
                         break
@@ -457,7 +457,7 @@ def generate_signals(
                         # wait for retest — don't enter on BOS bar
                         continue
             else:
-                for j in range(i - 1, max(start_i, i - 80), -1):
+                for j in range(i - 1, max(start_i, i - 40), -1):
                     if sl[j]:
                         last_swing = lows[j]
                         break
@@ -485,14 +485,14 @@ def generate_signals(
 
             if i < 1:
                 continue
-            pattern = detect_pattern(df5.iloc[i], df5.iloc[i - 1], setup.direction, params)
+            pattern = detect_pattern(dfl.iloc[i], dfl.iloc[i - 1], setup.direction, params)
             if pattern is None:
                 continue
 
             entry = float(closes[i])
             # Stop beyond order block / zone extreme
             if setup.direction == "long":
-                stop = min(setup.ob_low, setup.zone_bottom) - 0.1 * float(df5.at[i, "atr"] or 0)
+                stop = min(setup.ob_low, setup.zone_bottom) - 0.1 * float(dfl.at[i, "atr"] or 0)
                 # Enforce minimum stop distance (cost-aware)
                 stop = min(stop, entry * (1 - params.min_stop_pct))
                 risk = entry - stop
@@ -500,16 +500,16 @@ def generate_signals(
                     continue
                 tp = entry + params.rr_target * risk
             else:
-                stop = max(setup.ob_high, setup.zone_top) + 0.1 * float(df5.at[i, "atr"] or 0)
+                stop = max(setup.ob_high, setup.zone_top) + 0.1 * float(dfl.at[i, "atr"] or 0)
                 stop = max(stop, entry * (1 + params.min_stop_pct))
                 risk = stop - entry
                 if risk <= 0:
                     continue
                 tp = entry - params.rr_target * risk
 
-            atr5 = float(df5.at[i, "atr"]) if not np.isnan(df5.at[i, "atr"]) else risk
-            if atr5 > 0 and risk > params.max_stop_atr_mult * atr5 * 12:  # allow wider HTF stops
-                # Compare vs 1H-ish scale: 12 * 5m ATR ≈ 1H
+            atr_ltf = float(dfl.at[i, "atr"]) if not np.isnan(dfl.at[i, "atr"]) else risk
+            if atr_ltf > 0 and risk > params.max_stop_atr_mult * atr_ltf * 4:
+                # Compare vs 1H-ish scale: 4 * 15m ATR ≈ 1H
                 pass
             if risk / entry < params.min_stop_pct * 0.95:
                 continue
@@ -540,7 +540,7 @@ def generate_signals(
     deduped: list[Signal] = []
     last_ts = None
     for sig in signals:
-        if last_ts is not None and (sig.timestamp - last_ts) < pd.Timedelta(minutes=30):
+        if last_ts is not None and (sig.timestamp - last_ts) < pd.Timedelta(minutes=45):
             continue
         deduped.append(sig)
         last_ts = sig.timestamp

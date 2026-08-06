@@ -20,7 +20,8 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 INTERVAL_MS = {
     "1h": 60 * 60 * 1000,
-    "5m": 5 * 60 * 1000,
+    "15m": 15 * 60 * 1000,
+    "5m": 5 * 60 * 1000,  # kept for optional re-fetch
 }
 
 
@@ -160,7 +161,7 @@ def load_csv(path: Path) -> pd.DataFrame:
 def fetch_and_save(days: int = 365) -> dict:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     reports = {}
-    for interval, fname in (("1h", "paxgusdt_1h.csv"), ("5m", "paxgusdt_5m.csv")):
+    for interval, fname in (("1h", "paxgusdt_1h.csv"), ("15m", "paxgusdt_15m.csv")):
         raw = fetch_ohlcv(interval=interval, days=days)
         clean, report = fill_gaps(raw, interval)
         # Drop any residual NaNs

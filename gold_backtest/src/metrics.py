@@ -45,7 +45,7 @@ def _trade_frame(trades: list[Trade]) -> pd.DataFrame:
 
 def compute_metrics(result: BacktestResult, periods_per_year: float = 365.25 * 24 * 12) -> dict:
     """
-    periods_per_year default assumes 5m bars if we resample equity to 5m —
+    periods_per_year default assumes LTF bars if we resample equity —
     we instead compute Sharpe from trade returns and from daily equity.
     """
     trades = result.trades

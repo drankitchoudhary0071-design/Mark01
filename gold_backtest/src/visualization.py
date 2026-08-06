@@ -63,17 +63,18 @@ def plot_equity(
 
 
 def plot_example_trade(
-    df_5m: pd.DataFrame,
+    df_ltf: pd.DataFrame,
     trade: Trade,
     signal: Signal | None,
     path: Path,
-    pad_bars: int = 80,
+    pad_bars: int = 40,
+    bar_minutes: int = 15,
 ) -> Path:
     """Candlestick-ish OHLC plot with entry/exit/zone annotations."""
     _style()
-    df = df_5m.copy()
-    t0 = trade.entry_time - pd.Timedelta(minutes=5 * pad_bars)
-    t1 = trade.exit_time + pd.Timedelta(minutes=5 * pad_bars)
+    df = df_ltf.copy()
+    t0 = trade.entry_time - pd.Timedelta(minutes=bar_minutes * pad_bars)
+    t1 = trade.exit_time + pd.Timedelta(minutes=bar_minutes * pad_bars)
     win = df[(df["timestamp"] >= t0) & (df["timestamp"] <= t1)].reset_index(drop=True)
     if win.empty:
         return path

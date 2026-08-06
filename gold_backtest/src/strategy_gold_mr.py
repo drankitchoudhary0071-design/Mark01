@@ -5,11 +5,11 @@ Independent of PMTS. Designed from PAXG/USDT sample diagnostics:
 
 What the data showed
 --------------------
-- Strong year-long gold uptrend (~$3380 → ~$4270 on this sample).
-- 1H Donchian(20) upside breakouts had ~55% hit rate and +0.15% mean 12h
-  forward return; downside breakouts did NOT show a symmetric edge.
-- Median 5m ATR is only ~0.06% of price. Strategies that stop at ~1–1.5× 5m ATR
-  are structurally crushed by ~0.30% round-trip costs (~2–5R of friction).
+- Strong year-long gold uptrend on recent samples.
+- 1H Donchian upside breakouts showed a mild continuation bias; downside
+  breakouts did not show a symmetric edge in a bull regime.
+- Lower-timeframe ATR is small vs ~0.30% round-trip costs — stops must be
+  wide enough (min_stop_pct) or friction dominates R-multiples.
 - Range is highest around 13–14 UTC (London/NY); Asian hours are quieter.
 
 Edge hypothesis
@@ -24,7 +24,7 @@ Rules
 1. On 1H: Donchian channel lookback N (default 20).
 2. Breakout long when close > prior Donchian high; short when close < prior low
    AND close < SMA(100) (avoid shorting a bull).
-3. Confirm on 5m within the next 3 hours: a close beyond the breakout level
+3. Confirm on 15m within the next 3 hours: a close beyond the breakout level
    plus a small pullback that holds the level (no immediate failure).
 4. Stop: opposite side of the 1H breakout candle ± buffer, floored at
    min_stop_pct (default 0.50% of price).
@@ -60,7 +60,7 @@ class GoldDonchianParams:
 
 def generate_gold_donchian_signals(
     df_1h: pd.DataFrame,
-    df_5m: pd.DataFrame,
+    df_15m: pd.DataFrame,
     params: GoldDonchianParams | None = None,
 ) -> list[Signal]:
     params = params or GoldDonchianParams()
@@ -107,15 +107,18 @@ def generate_gold_donchian_signals(
             }
         )
 
-    df5 = df_5m.copy().reset_index(drop=True)
+    dfl = df_15m.copy().reset_index(drop=True)
     signals: list[Signal] = []
-    last_signal_time: dict[str, pd.Timestamp] = {"long": pd.Timestamp("1970-01-01", tz="UTC"), "short": pd.Timestamp("1970-01-01", tz="UTC")}
+    last_signal_time: dict[str, pd.Timestamp] = {
+        "long": pd.Timestamp("1970-01-01", tz="UTC"),
+        "short": pd.Timestamp("1970-01-01", tz="UTC"),
+    }
 
     for ev in events:
-        # 5m confirmation window
+        # 15m confirmation window
         t0 = ev["ts"]
         t1 = t0 + pd.Timedelta(hours=params.confirm_hours)
-        win = df5[(df5["timestamp"] > t0) & (df5["timestamp"] <= t1)]
+        win = dfl[(dfl["timestamp"] > t0) & (dfl["timestamp"] <= t1)]
         if win.empty:
             continue
 
@@ -137,7 +140,6 @@ def generate_gold_donchian_signals(
                 if r["close"] > level:
                     broke = True
                 if broke and r["low"] <= level * 1.001 and r["close"] >= level:
-                    # pullback hold
                     confirmed = True
                     entry_row = r
                     break
@@ -229,6 +231,6 @@ def generate_gold_donchian_signals(
     return signals
 
 
-# Backwards-compatible alias used by pipeline during transition
+# Backwards-compatible aliases
 GoldMRParams = GoldDonchianParams
 generate_gold_mr_signals = generate_gold_donchian_signals

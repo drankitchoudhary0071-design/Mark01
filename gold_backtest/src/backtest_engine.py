@@ -2,7 +2,7 @@
 Custom event-driven backtest engine for multi-timeframe strategies.
 
 Why not backtesting.py?
-- PMTS requires 1H setup detection + 5m entries; backtesting.py is single-frame.
+- PMTS requires 1H setup detection + 15m entries; backtesting.py is single-frame.
 - We need HTF state machines, setup expiry, and one-trade-per-setup semantics.
 - Explicit fill model (spread + slippage) is clearer for gold/crypto spot.
 
@@ -74,25 +74,25 @@ def apply_exit_price(raw: float, direction: str, costs: CostModel) -> float:
 
 
 def run_backtest(
-    df_5m: pd.DataFrame,
+    df_ltf: pd.DataFrame,
     signals: list[Signal],
     initial_capital: float = 10_000.0,
     risk_per_trade: float = 0.01,
     costs: CostModel | None = None,
-    max_hold_bars: int = 12 * 24 * 5,  # ~5 days on 5m
+    max_hold_bars: int = 4 * 24 * 5,  # ~5 days on 15m
     params_note: str = "",
 ) -> BacktestResult:
     """
-    Event-driven: walk 5m bars, open on signal bar close (next-bar open more realistic —
+    Event-driven: walk 15m bars, open on signal bar close (next-bar open more realistic —
     we fill at signal close + costs to avoid look-ahead of next open in sparse signals).
     Stops/TPs checked on subsequent bars using high/low (intrabar).
     """
     costs = costs or CostModel()
     if not signals:
-        eq = pd.Series([initial_capital], index=df_5m["timestamp"].iloc[:1])
+        eq = pd.Series([initial_capital], index=df_ltf["timestamp"].iloc[:1])
         return BacktestResult([], eq, eq.index, initial_capital, initial_capital, params_note)
 
-    df = df_5m.reset_index(drop=True)
+    df = df_ltf.reset_index(drop=True)
     ts_to_i = {pd.Timestamp(t): i for i, t in enumerate(df["timestamp"])}
 
     capital = initial_capital

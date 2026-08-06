@@ -1,77 +1,76 @@
 === Data diagnostics (PAXG/USDT, 1H) ===
-Bars 1H=8760  5m=105120
+Bars 1H=8760  15m=35040
 Range: 2025-08-06 08:00:00+00:00 → 2026-08-06 07:00:00+00:00
 Ann. vol (from 1H rets): 27.0%
-Return autocorr lag1=-0.0067  lag24=-0.0174
+Return autocorr lag1=-0.0067  lag24=-0.0175
 Highest avg range hours (UTC): {14: np.float64(0.005), 13: np.float64(0.00482), 1: np.float64(0.00462)}
 Lowest avg range hours (UTC): {4: np.float64(0.00236), 21: np.float64(0.00237), 3: np.float64(0.00272)}
-Negative lag-1 autocorr suggests short-horizon mean reversion — supports fade/pullback logic more than pure breakout chasing on 5m.
+Lag-1 autocorr is near zero — neither a strong MR nor momentum signature at 1H; edge (if any) is more likely session/regime structure than simple serial correlation.
 
 === Split ===
-Full: 2025-08-06 07:10:00+00:00 → 2026-08-06 07:05:00+00:00
-In-sample end: 2026-06-06 11:05:50+00:00
+Full: 2025-08-06 07:45:00+00:00 → 2026-08-06 07:30:00+00:00
+In-sample end: 2026-06-06 11:32:30+00:00
 IS ≈ 10 months, OOS ≈ 2 months (OOS never used for optimization)
 
-IS-optimized PMTS params: disp=2.4, rr=2.5, age=72
+IS-optimized PMTS params: disp=2.4, rr=2.0, age=48
 
 === PMTS (optimized) — IN-SAMPLE ===
-Total trades     : 46
-Win rate         : 37.0%
-Profit factor    : 0.678
-Avg realized R   : -0.156
-Avg win R / loss : 0.901 / -0.775
-Max drawdown     : -8.45%
-Sharpe (daily)   : -1.322
-Total return     : -7.08%
-Final equity     : $9,292.00 (from $10,000.00)
-Long/Short       : 26 / 20
-TP / Stop exits  : 16 / 29
+Total trades     : 34
+Win rate         : 29.4%
+Profit factor    : 0.414
+Avg realized R   : -0.317
+Avg win R / loss : 0.742 / -0.758
+Max drawdown     : -11.94%
+Sharpe (daily)   : -2.506
+Total return     : -10.31%
+Final equity     : $8,968.69 (from $10,000.00)
+Long/Short       : 20 / 14
+TP / Stop exits  : 10 / 24
 
 === PMTS (optimized) — OUT-OF-SAMPLE ===
-Total trades     : 13
-Win rate         : 15.4%
-Profit factor    : 0.153
-Avg realized R   : -0.490
-Avg win R / loss : 0.601 / -0.689
-Max drawdown     : -6.81%
-Sharpe (daily)   : -7.086
-Total return     : -6.20%
-Final equity     : $9,379.55 (from $10,000.00)
-Long/Short       : 10 / 3
-TP / Stop exits  : 2 / 11
+Total trades     : 10
+Win rate         : 40.0%
+Profit factor    : 0.415
+Avg realized R   : -0.241
+Avg win R / loss : 0.432 / -0.689
+Max drawdown     : -2.97%
+Sharpe (daily)   : -3.131
+Total return     : -2.40%
+Final equity     : $9,760.30 (from $10,000.00)
+Long/Short       : 8 / 2
+TP / Stop exits  : 4 / 6
 
 === Overfitting assessment ===
-IS  return=-7.08%  WR=37.0%  PF=0.68  Sharpe=-1.32
-OOS return=-6.20%  WR=15.4%  PF=0.15  Sharpe=-7.09
-VERDICT: SUSPECT OVERFITTING — Win rate drops >20pp from IS to OOS.
+IS  return=-10.31%  WR=29.4%  PF=0.41  Sharpe=-2.51
+OOS return=-2.40%  WR=40.0%  PF=0.41  Sharpe=-3.13
+VERDICT: Strategy appears weak on both IS and OOS (not overfit — just no edge under these costs/rules).
 
 === PMTS weakness diagnosis (data-driven) ===
 HTF order-block setups detected: 78
-Signals that passed all 4 steps: 51
-Setup→signal conversion: 65.4%
+Signals that passed all 4 steps: 36
+Setup→signal conversion: 46.2%
 By pattern:
                  n        wr      avgR
 pattern                               
-engulfing       31  0.354839 -0.139216
-pin_bar          4  0.000000 -0.676028
-rejection_wick  11  0.545455 -0.012582
+engulfing       15  0.200000 -0.450629
+pin_bar          8  0.375000 -0.078459
+rejection_wick  11  0.363636 -0.307609
 By direction:
             n        wr      avgR
 direction                        
-long       26  0.461538  0.033306
-short      20  0.250000 -0.401209
+long       20  0.350000 -0.222302
+short      14  0.214286 -0.451769
 Exit reasons:
 exit_reason
-stop           29
-take_profit    16
-time_exit       1
+stop           24
+take_profit    10
 WEAK LINK: Stops hit often (>55%). Likely causes: golden zone entries still too early (BOS not confirming genuine continuation), or stops anchored to wide OB extremes.
-Worst entry hours UTC (avg R): {13: np.float64(-0.89), 21: np.float64(-0.853), 15: np.float64(-0.812)}
-Best entry hours UTC (avg R): {19: np.float64(2.242), 12: np.float64(0.773), 18: np.float64(0.694)}
-Asian (0-6 UTC) avg R=-0.242 n=15 vs rest avg R=-0.114 n=31
+Worst entry hours UTC (avg R): {17: np.float64(-1.107), 15: np.float64(-0.824), 21: np.float64(-0.748)}
+Best entry hours UTC (avg R): {14: np.float64(1.672), 19: np.float64(0.941), 20: np.float64(0.503)}
+Asian (0-6 UTC) avg R=-0.370 n=13 vs rest avg R=-0.284 n=21
 
 === Step 5 improvements (concrete, tied to diagnosis) ===
-1) Cost-aware min stop distance (0.40%): median 5m ATR is ~0.06% of price — tight stops make
+1) Cost-aware min stop distance (0.40%): median 15m ATR is ~0.13% of price — tight stops make
    the ~0.30% round-trip cost several R of friction. Floor stop distance so costs < 1R.
 2) HTF SMA(100) trend filter + session focus 08:00–18:00 UTC: shorts against the bull regime
    and off-session entries dragged expectancy; diagnosis showed shorts avg R worse than longs
@@ -81,84 +80,84 @@ Asian (0-6 UTC) avg R=-0.242 n=15 vs rest avg R=-0.114 n=31
 
 
 === PMTS IMPROVED — IN-SAMPLE ===
-Total trades     : 8
-Win rate         : 50.0%
-Profit factor    : 1.357
-Avg realized R   : 0.142
-Avg win R / loss : 1.035 / -0.751
-Max drawdown     : -2.33%
-Sharpe (daily)   : 0.445
-Total return     : 1.10%
-Final equity     : $10,110.10 (from $10,000.00)
-Long/Short       : 5 / 3
-TP / Stop exits  : 4 / 4
+Total trades     : 6
+Win rate         : 33.3%
+Profit factor    : 0.685
+Avg realized R   : -0.162
+Avg win R / loss : 1.073 / -0.779
+Max drawdown     : -3.08%
+Sharpe (daily)   : -0.467
+Total return     : -0.99%
+Final equity     : $9,900.79 (from $10,000.00)
+Long/Short       : 4 / 2
+TP / Stop exits  : 2 / 4
 
 === PMTS IMPROVED — OUT-OF-SAMPLE ===
 Total trades     : 3
 Win rate         : 33.3%
-Profit factor    : 0.490
-Avg realized R   : -0.226
-Avg win R / loss : 0.663 / -0.670
-Max drawdown     : -1.34%
-Sharpe (daily)   : -1.449
-Total return     : -0.68%
-Final equity     : $9,931.80 (from $10,000.00)
+Profit factor    : 0.398
+Avg realized R   : -0.292
+Avg win R / loss : 0.590 / -0.733
+Max drawdown     : -1.46%
+Sharpe (daily)   : -1.814
+Total return     : -0.88%
+Final equity     : $9,912.08 (from $10,000.00)
 Long/Short       : 3 / 0
 TP / Stop exits  : 1 / 2
 
 === Overfitting assessment ===
 WARNING: In-sample trade count is low (<15). Statistical confidence is weak; any 'edge' may be noise.
 WARNING: Out-of-sample trade count is very low (<5). OOS results are not reliable.
-IS  return=1.10%  WR=50.0%  PF=1.36  Sharpe=0.44
-OOS return=-0.68%  WR=33.3%  PF=0.49  Sharpe=-1.45
-VERDICT: Mixed / inconclusive. Performance gap exists but does not cleanly match a textbook overfit pattern; sample size and regime shift may both matter.
+IS  return=-0.99%  WR=33.3%  PF=0.68  Sharpe=-0.47
+OOS return=-0.88%  WR=33.3%  PF=0.40  Sharpe=-1.81
+VERDICT: Strategy appears weak on both IS and OOS (not overfit — just no edge under these costs/rules).
 
 Gold Donchian IS-chosen donchian=15 rr=2.5 long_only=False
 
 === GOLD DONCHIAN TREND — IN-SAMPLE ===
-Total trades     : 140
-Win rate         : 45.0%
-Profit factor    : 1.034
-Avg realized R   : 0.021
-Avg win R / loss : 1.089 / -0.852
-Max drawdown     : -9.66%
-Sharpe (daily)   : 0.275
-Total return     : 2.28%
-Final equity     : $10,228.14 (from $10,000.00)
-Long/Short       : 91 / 49
-TP / Stop exits  : 57 / 77
+Total trades     : 138
+Win rate         : 41.3%
+Profit factor    : 0.880
+Avg realized R   : -0.059
+Avg win R / loss : 1.113 / -0.883
+Max drawdown     : -14.27%
+Sharpe (daily)   : -0.756
+Total return     : -8.43%
+Final equity     : $9,156.58 (from $10,000.00)
+Long/Short       : 85 / 53
+TP / Stop exits  : 51 / 81
 
 === GOLD DONCHIAN TREND — OUT-OF-SAMPLE ===
-Total trades     : 28
-Win rate         : 42.9%
-Profit factor    : 0.893
-Avg realized R   : -0.051
-Avg win R / loss : 1.111 / -0.923
-Max drawdown     : -4.57%
-Sharpe (daily)   : -0.648
-Total return     : -1.57%
-Final equity     : $9,842.98 (from $10,000.00)
-Long/Short       : 14 / 14
-TP / Stop exits  : 10 / 16
+Total trades     : 29
+Win rate         : 34.5%
+Profit factor    : 0.596
+Avg realized R   : -0.249
+Avg win R / loss : 1.069 / -0.942
+Max drawdown     : -9.39%
+Sharpe (daily)   : -3.001
+Total return     : -7.11%
+Final equity     : $9,289.33 (from $10,000.00)
+Long/Short       : 15 / 14
+TP / Stop exits  : 7 / 19
 
 === Overfitting assessment ===
-IS  return=2.28%  WR=45.0%  PF=1.03  Sharpe=0.27
-OOS return=-1.57%  WR=42.9%  PF=0.89  Sharpe=-0.65
-VERDICT: Mixed / inconclusive. Performance gap exists but does not cleanly match a textbook overfit pattern; sample size and regime shift may both matter.
+IS  return=-8.43%  WR=41.3%  PF=0.88  Sharpe=-0.76
+OOS return=-7.11%  WR=34.5%  PF=0.60  Sharpe=-3.00
+VERDICT: Strategy appears weak on both IS and OOS (not overfit — just no edge under these costs/rules).
 
 === Summary comparison ===
            Strategy Period  Trades Win%   PF Avg R MaxDD% Sharpe Return%
-  PMTS baseline-opt     IS      46 37.0 0.68 -0.16   -8.5  -1.32    -7.1
-  PMTS baseline-opt    OOS      13 15.4 0.15 -0.49   -6.8  -7.09    -6.2
-      PMTS improved     IS       8 50.0 1.36  0.14   -2.3   0.44     1.1
-      PMTS improved    OOS       3 33.3 0.49 -0.23   -1.3  -1.45    -0.7
-Gold Donchian (new)     IS     140 45.0 1.03  0.02   -9.7   0.27     2.3
-Gold Donchian (new)    OOS      28 42.9 0.89 -0.05   -4.6  -0.65    -1.6
+  PMTS baseline-opt     IS      34 29.4 0.41 -0.32  -11.9  -2.51   -10.3
+  PMTS baseline-opt    OOS      10 40.0 0.41 -0.24   -3.0  -3.13    -2.4
+      PMTS improved     IS       6 33.3 0.68 -0.16   -3.1  -0.47    -1.0
+      PMTS improved    OOS       3 33.3 0.40 -0.29   -1.5  -1.81    -0.9
+Gold Donchian (new)     IS     138 41.3 0.88 -0.06  -14.3  -0.76    -8.4
+Gold Donchian (new)    OOS      29 34.5 0.60 -0.25   -9.4  -3.00    -7.1
 
 === Backtest engine choice ===
 Custom event-driven loop (not backtesting.py).
 
-Why: PMTS is multi-timeframe (1H setups → 5m entries) with setup expiry, one-trade-per-setup,
+Why: PMTS is multi-timeframe (1H setups → 15m entries) with setup expiry, one-trade-per-setup,
 and explicit BOS state. backtesting.py assumes a single OHLCV frame and vectorized indicators;
 forcing HTF logic into it invites look-ahead bugs. Custom loop makes fill model (spread +
 slippage + commission) and stop-first intrabar ambiguity explicit.
@@ -168,7 +167,7 @@ Approx round-trip friction ~0.30% — material for gold scalps; strategies must 
 
 
 === New strategy: Gold Donchian Trend Continuation (GDTC) ===
-Exploits: 1H Donchian channel breakouts with 5m retest confirmation, cost-aware stops (>=0.50%),
-and shorts only below SMA(100). Built because this sample is a gold bull trend and 5m mean-
+Exploits: 1H Donchian channel breakouts with 15m retest confirmation, cost-aware stops (>=0.50%),
+and shorts only below SMA(100). Built because this sample is a gold bull trend and 15m mean-
 reversion with tight stops is structurally unprofitable after ~0.30% round-trip costs.
 IS-tuned donchian=15, rr=2.5, long_only=False.

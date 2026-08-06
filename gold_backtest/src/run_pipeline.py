@@ -30,14 +30,14 @@ from gold_backtest.src.visualization import plot_equity, plot_example_trade, plo
 
 def ensure_data(force: bool = False) -> None:
     f1 = DATA_DIR / "paxgusdt_1h.csv"
-    f5 = DATA_DIR / "paxgusdt_5m.csv"
+    f5 = DATA_DIR / "paxgusdt_15m.csv"
     if force or not f1.exists() or not f5.exists():
         fetch_and_save(365)
     else:
         print(f"Using cached data: {f1} , {f5}")
 
 
-def analyze_data(df_1h: pd.DataFrame, df_5m: pd.DataFrame) -> str:
+def analyze_data(df_1h: pd.DataFrame, df_15m: pd.DataFrame) -> str:
     """Quick factual notes used to justify the new strategy + PMTS weaknesses."""
     h = df_1h.copy()
     h["ret"] = h["close"].pct_change()
@@ -52,7 +52,7 @@ def analyze_data(df_1h: pd.DataFrame, df_5m: pd.DataFrame) -> str:
     ac24 = h["ret"].autocorr(24)
     lines = [
         "=== Data diagnostics (PAXG/USDT, 1H) ===",
-        f"Bars 1H={len(df_1h)}  5m={len(df_5m)}",
+        f"Bars 1H={len(df_1h)}  15m={len(df_15m)}",
         f"Range: {h['timestamp'].iloc[0]} → {h['timestamp'].iloc[-1]}",
         f"Ann. vol (from 1H rets): {vol*100:.1f}%",
         f"Return autocorr lag1={ac1:.4f}  lag24={ac24:.4f}",
@@ -76,7 +76,7 @@ def analyze_data(df_1h: pd.DataFrame, df_5m: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def light_is_optimize(df_1h_is: pd.DataFrame, df_5m_is: pd.DataFrame) -> PMTSParams:
+def light_is_optimize(df_1h_is: pd.DataFrame, df_15m_is: pd.DataFrame) -> PMTSParams:
     """
     Tiny IS-only grid (intentionally small to limit overfit).
     Optimizes displacement multiplier and RR on in-sample expectancy.
@@ -98,9 +98,9 @@ def light_is_optimize(df_1h_is: pd.DataFrame, df_5m_is: pd.DataFrame) -> PMTSPar
 
     print(f"IS grid search: {len(grid)} configs...")
     for p in grid:
-        sigs = generate_signals(df_1h_is, df_5m_is, p)
+        sigs = generate_signals(df_1h_is, df_15m_is, p)
         # Need enough lookback context — use full IS dfs already split
-        res = run_backtest(df_5m_is, sigs, params_note="is_opt")
+        res = run_backtest(df_15m_is, sigs, params_note="is_opt")
         m = compute_metrics(res)
         # Score: expectancy_R * sqrt(trades) with PF floor; punish tiny samples
         if m["total_trades"] < 8:
@@ -122,7 +122,7 @@ def light_is_optimize(df_1h_is: pd.DataFrame, df_5m_is: pd.DataFrame) -> PMTSPar
 
 def diagnose_pmts_weakness(
     df_1h: pd.DataFrame,
-    df_5m: pd.DataFrame,
+    df_15m: pd.DataFrame,
     signals,
     result,
     params: PMTSParams,
@@ -137,7 +137,7 @@ def diagnose_pmts_weakness(
         lines.append(f"Setup→signal conversion: {conv*100:.1f}%")
         if conv < 0.25:
             lines.append(
-                "WEAK LINK CANDIDATE: Steps 3–4 (5m BOS + pattern in zone) reject most HTF setups. "
+                "WEAK LINK CANDIDATE: Steps 3–4 (15m BOS + pattern in zone) reject most HTF setups. "
                 "Either BOS is too strict, golden zone is rarely revisited, or patterns are rare."
             )
 
@@ -213,13 +213,13 @@ def run() -> None:
 
     ensure_data(force=False)
     df_1h = load_csv(DATA_DIR / "paxgusdt_1h.csv")
-    df_5m = load_csv(DATA_DIR / "paxgusdt_5m.csv")
+    df_15m = load_csv(DATA_DIR / "paxgusdt_15m.csv")
 
-    diag = analyze_data(df_1h, df_5m)
+    diag = analyze_data(df_1h, df_15m)
     print(diag)
     report_lines.append(diag)
 
-    start, is_end, end = split_is_oos(df_5m, 10 / 12)
+    start, is_end, end = split_is_oos(df_15m, 10 / 12)
     report_lines.append(
         f"\n=== Split ===\nFull: {start} → {end}\nIn-sample end: {is_end}\n"
         f"IS ≈ 10 months, OOS ≈ 2 months (OOS never used for optimization)"
@@ -227,7 +227,7 @@ def run() -> None:
     print(report_lines[-1])
 
     df_1h_is = filter_df_period(df_1h, start, is_end)
-    df_5m_is = filter_df_period(df_5m, start, is_end)
+    df_15m_is = filter_df_period(df_15m, start, is_end)
     # For signal gen on OOS we still need HTF history — generate on full, filter by signal time
     # Optimization uses IS-only dataframes exclusively.
 
@@ -235,7 +235,7 @@ def run() -> None:
     print("\nGenerating baseline PMTS signals on full history (params fixed defaults)...")
     baseline_params = PMTSParams()
     # Light optimize on IS only
-    opt_params = light_is_optimize(df_1h_is, df_5m_is)
+    opt_params = light_is_optimize(df_1h_is, df_15m_is)
     report_lines.append(
         f"\nIS-optimized PMTS params: disp={opt_params.displacement_body_mult}, "
         f"rr={opt_params.rr_target}, age={opt_params.setup_max_age_hours}"
@@ -244,18 +244,18 @@ def run() -> None:
     # Generate signals with lookback: use full data for structure continuity, filter by time
     # But for honesty on IS metrics of optimized params, regenerate on IS-only for IS backtest
     # and on full for OOS signals with params locked.
-    sigs_is = generate_signals(df_1h_is, df_5m_is, opt_params)
+    sigs_is = generate_signals(df_1h_is, df_15m_is, opt_params)
     # For OOS: need setups that form near boundary — use extended history
     # Build OOS window with HTF warm-up: from start to end, filter signals into OOS
-    sigs_full = generate_signals(df_1h, df_5m, opt_params)
+    sigs_full = generate_signals(df_1h, df_15m, opt_params)
     sigs_oos = filter_signals_period(sigs_full, is_end, end)
 
     costs = CostModel()
-    res_is = run_backtest(df_5m_is, sigs_is, costs=costs, params_note="PMTS_IS")
-    df_5m_oos = filter_df_period(df_5m, is_end, end)
+    res_is = run_backtest(df_15m_is, sigs_is, costs=costs, params_note="PMTS_IS")
+    df_15m_oos = filter_df_period(df_15m, is_end, end)
     # Warm-start OOS equity backtest: also allow positions — signals already OOS-timed
-    # Use OOS 5m only so we don't leak IS equity path into OOS metrics
-    res_oos = run_backtest(df_5m_oos, sigs_oos, costs=costs, params_note="PMTS_OOS")
+    # Use OOS 15m only so we don't leak IS equity path into OOS metrics
+    res_oos = run_backtest(df_15m_oos, sigs_oos, costs=costs, params_note="PMTS_OOS")
 
     m_is = compute_metrics(res_is)
     m_oos = compute_metrics(res_oos)
@@ -266,13 +266,13 @@ def run() -> None:
     print(report_lines[-2])
     print(report_lines[-1])
 
-    weakness = diagnose_pmts_weakness(df_1h_is, df_5m_is, sigs_is, res_is, opt_params)
+    weakness = diagnose_pmts_weakness(df_1h_is, df_15m_is, sigs_is, res_is, opt_params)
     report_lines.append("\n" + weakness)
     print(weakness)
 
     improvements_text = """
 === Step 5 improvements (concrete, tied to diagnosis) ===
-1) Cost-aware min stop distance (0.40%): median 5m ATR is ~0.06% of price — tight stops make
+1) Cost-aware min stop distance (0.40%): median 15m ATR is ~0.12% of price — tight stops make
    the ~0.30% round-trip cost several R of friction. Floor stop distance so costs < 1R.
 2) HTF SMA(100) trend filter + session focus 08:00–18:00 UTC: shorts against the bull regime
    and off-session entries dragged expectancy; diagnosis showed shorts avg R worse than longs
@@ -290,11 +290,11 @@ def run() -> None:
     imp.displacement_body_mult = max(opt_params.displacement_body_mult, 2.0)
     imp.min_stop_pct = max(getattr(opt_params, "min_stop_pct", 0.0035), 0.004)
 
-    sigs_imp_is = generate_signals(df_1h_is, df_5m_is, imp)
-    sigs_imp_full = generate_signals(df_1h, df_5m, imp)
+    sigs_imp_is = generate_signals(df_1h_is, df_15m_is, imp)
+    sigs_imp_full = generate_signals(df_1h, df_15m, imp)
     sigs_imp_oos = filter_signals_period(sigs_imp_full, is_end, end)
-    res_imp_is = run_backtest(df_5m_is, sigs_imp_is, costs=costs, params_note="PMTS_IMP_IS")
-    res_imp_oos = run_backtest(df_5m_oos, sigs_imp_oos, costs=costs, params_note="PMTS_IMP_OOS")
+    res_imp_is = run_backtest(df_15m_is, sigs_imp_is, costs=costs, params_note="PMTS_IMP_IS")
+    res_imp_oos = run_backtest(df_15m_oos, sigs_imp_oos, costs=costs, params_note="PMTS_IMP_OOS")
     m_imp_is = compute_metrics(res_imp_is)
     m_imp_oos = compute_metrics(res_imp_oos)
     report_lines.append("\n" + format_metrics(m_imp_is, "PMTS IMPROVED — IN-SAMPLE"))
@@ -314,8 +314,8 @@ def run() -> None:
                 p = GoldDonchianParams(
                     donchian=don, rr_target=rr, min_stop_pct=0.005, long_only=long_only
                 )
-                sigs = generate_gold_donchian_signals(df_1h_is, df_5m_is, p)
-                res = run_backtest(df_5m_is, sigs, costs=costs)
+                sigs = generate_gold_donchian_signals(df_1h_is, df_15m_is, p)
+                res = run_backtest(df_15m_is, sigs, costs=costs)
                 m = compute_metrics(res)
                 if m["total_trades"] < 10:
                     score = -999
@@ -337,11 +337,11 @@ def run() -> None:
         f"\nGold Donchian IS-chosen donchian={gparams.donchian} rr={gparams.rr_target} "
         f"long_only={gparams.long_only}"
     )
-    g_is = generate_gold_donchian_signals(df_1h_is, df_5m_is, gparams)
-    g_full = generate_gold_donchian_signals(df_1h, df_5m, gparams)
+    g_is = generate_gold_donchian_signals(df_1h_is, df_15m_is, gparams)
+    g_full = generate_gold_donchian_signals(df_1h, df_15m, gparams)
     g_oos = filter_signals_period(g_full, is_end, end)
-    res_g_is = run_backtest(df_5m_is, g_is, costs=costs, params_note="GDTC_IS")
-    res_g_oos = run_backtest(df_5m_oos, g_oos, costs=costs, params_note="GDTC_OOS")
+    res_g_is = run_backtest(df_15m_is, g_is, costs=costs, params_note="GDTC_IS")
+    res_g_oos = run_backtest(df_15m_oos, g_oos, costs=costs, params_note="GDTC_OOS")
     m_g_is = compute_metrics(res_g_is)
     m_g_oos = compute_metrics(res_g_oos)
     report_lines.append("\n" + format_metrics(m_g_is, "GOLD DONCHIAN TREND — IN-SAMPLE"))
@@ -369,9 +369,9 @@ def run() -> None:
 
     # Equity curves — stitch IS+OOS for visual (separate series)
     # Build full-period equity for each strategy with locked params
-    res_pmts_full = run_backtest(df_5m, filter_signals_period(sigs_full, start, end), costs=costs)
-    res_imp_full = run_backtest(df_5m, filter_signals_period(sigs_imp_full, start, end), costs=costs)
-    res_g_full = run_backtest(df_5m, filter_signals_period(g_full, start, end), costs=costs)
+    res_pmts_full = run_backtest(df_15m, filter_signals_period(sigs_full, start, end), costs=costs)
+    res_imp_full = run_backtest(df_15m, filter_signals_period(sigs_imp_full, start, end), costs=costs)
+    res_g_full = run_backtest(df_15m, filter_signals_period(g_full, start, end), costs=costs)
     plot_equity(
         {
             "PMTS opt": res_pmts_full,
@@ -408,10 +408,10 @@ def run() -> None:
         # nearest signal
         if sig is None and sigs_is:
             sig = min(sigs_is, key=lambda s: abs(s.timestamp - tr.entry_time))
-        plot_example_trade(df_5m, tr, sig, CHARTS / f"pmts_example_trade_{i}.png")
+        plot_example_trade(df_15m, tr, sig, CHARTS / f"pmts_example_trade_{i}.png")
 
     for i, tr in enumerate(pick_examples(res_g_is.trades, 2), 1):
-        plot_example_trade(df_5m, tr, None, CHARTS / f"gold_donchian_example_trade_{i}.png")
+        plot_example_trade(df_15m, tr, None, CHARTS / f"gold_donchian_example_trade_{i}.png")
 
     # Before/after improvement bar comparison
     before_after = [
@@ -436,7 +436,7 @@ def run() -> None:
 === Backtest engine choice ===
 Custom event-driven loop (not backtesting.py).
 
-Why: PMTS is multi-timeframe (1H setups → 5m entries) with setup expiry, one-trade-per-setup,
+Why: PMTS is multi-timeframe (1H setups → 15m entries) with setup expiry, one-trade-per-setup,
 and explicit BOS state. backtesting.py assumes a single OHLCV frame and vectorized indicators;
 forcing HTF logic into it invites look-ahead bugs. Custom loop makes fill model (spread +
 slippage + commission) and stop-first intrabar ambiguity explicit.
@@ -448,8 +448,8 @@ Approx round-trip friction ~0.30% — material for gold scalps; strategies must 
 
     new_strat_note = f"""
 === New strategy: Gold Donchian Trend Continuation (GDTC) ===
-Exploits: 1H Donchian channel breakouts with 5m retest confirmation, cost-aware stops (>=0.50%),
-and shorts only below SMA(100). Built because this sample is a gold bull trend and 5m mean-
+Exploits: 1H Donchian channel breakouts with 15m retest confirmation, cost-aware stops (>=0.50%),
+and shorts only below SMA(100). Built because this sample is a gold bull trend and 15m mean-
 reversion with tight stops is structurally unprofitable after ~0.30% round-trip costs.
 IS-tuned donchian={gparams.donchian}, rr={gparams.rr_target}, long_only={gparams.long_only}.
 """
