@@ -59,10 +59,14 @@ def analyze_data(df_1h: pd.DataFrame, df_5m: pd.DataFrame) -> str:
         f"Highest avg range hours (UTC): {dict(busiest.round(5))}",
         f"Lowest avg range hours (UTC): {dict(quietest.round(5))}",
     ]
-    if ac1 < 0:
+    if ac1 < -0.05:
         lines.append(
-            "Negative lag-1 autocorr suggests short-horizon mean reversion — supports fade/"
-            "pullback logic more than pure breakout chasing on 5m."
+            "Material negative lag-1 autocorr suggests short-horizon mean reversion."
+        )
+    elif abs(ac1) < 0.02:
+        lines.append(
+            "Lag-1 autocorr is near zero — neither a strong MR nor momentum signature at 1H; "
+            "edge (if any) is more likely session/regime structure than simple serial correlation."
         )
     else:
         lines.append(
