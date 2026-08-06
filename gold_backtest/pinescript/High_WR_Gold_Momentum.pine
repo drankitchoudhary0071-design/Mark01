@@ -1,0 +1,162 @@
+//@version=5
+// High-WR Gold Momentum (HWR-GM)
+// Port of gold_backtest/src/strategy_high_wr.py
+//
+// HOW TO USE ON TRADINGVIEW
+// 1. Open chart: PAXGUSDT (Binance) or PAXGUSDT.P — timeframe 15 minutes
+// 2. Pine Editor → paste this script → Add to chart
+// 3. Strategy Tester tab → set date range (~1 year) to compare with backtest
+// 4. Properties → Commission: 0.1% (percent of equity order size) recommended
+//
+// Logic (long-only, fixed RR 1:2):
+// - 1H: SMA50 > SMA100, close > SMA100, ADX>35, +DI > -DI
+// - 15m: higher-low + close > prior high, RSI 50–70
+// - Session: 08:00–17:00 UTC
+// - Stop: below 8-bar swing (buffered), floored at 1% of price; reject if >2%
+// - TP = entry + 2 * risk; cooldown 8 bars between entries
+
+strategy(
+     title              = "High-WR Gold Momentum 1:2",
+     shorttitle         = "HWR-GM",
+     overlay            = true,
+     pyramiding         = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick = false,
+     initial_capital    = 10000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 100,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.1,
+     slippage           = 2
+ )
+
+// ═══════════════════════ Inputs ═══════════════════════
+grpTrend = "1H Trend / ADX"
+htfTf        = input.timeframe("60", "Higher timeframe", group=grpTrend)
+smaFastLen   = input.int(50, "SMA fast", minval=2, group=grpTrend)
+smaSlowLen   = input.int(100, "SMA slow", minval=2, group=grpTrend)
+adxLen       = input.int(14, "ADX length", minval=1, group=grpTrend)
+adxMin       = input.float(35.0, "Min ADX", minval=1, step=0.5, group=grpTrend)
+
+grpEntry = "15m Entry"
+rsiLen       = input.int(14, "RSI length", minval=1, group=grpEntry)
+rsiLo        = input.float(50.0, "RSI low", group=grpEntry)
+rsiHi        = input.float(70.0, "RSI high", group=grpEntry)
+sessionStart = input.int(8, "Session start hour (UTC)", minval=0, maxval=23, group=grpEntry)
+sessionEnd   = input.int(17, "Session end hour (UTC)", minval=1, maxval=24, group=grpEntry)
+cooldownBars = input.int(8, "Cooldown bars after entry", minval=0, group=grpEntry)
+
+grpRisk = "Risk (1:2)"
+swingLook    = input.int(8, "Swing lookback for stop", minval=2, group=grpRisk)
+minStopPct   = input.float(1.0, "Min stop %", minval=0.1, step=0.1, group=grpRisk) / 100.0
+maxStopPct   = input.float(2.0, "Max stop %", minval=0.2, step=0.1, group=grpRisk) / 100.0
+rrTarget     = input.float(2.0, "Reward : Risk", minval=0.5, step=0.1, group=grpRisk)
+atrBufMult   = input.float(0.15, "Stop ATR buffer mult", minval=0.0, step=0.05, group=grpRisk)
+riskPct      = input.float(1.0, "Risk per trade % equity", minval=0.1, step=0.1, group=grpRisk) / 100.0
+
+grpVis = "Visuals"
+showBg       = input.bool(true, "Shade session", group=grpVis)
+showLevels   = input.bool(true, "Show SL/TP lines after entry", group=grpVis)
+
+// ═══════════════════════ 1H features via request.security ═══════════════════════
+f_htf() =>
+    smaF = ta.sma(close, smaFastLen)
+    smaS = ta.sma(close, smaSlowLen)
+    [diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+    [smaF, smaS, close, adxVal, diPlus, diMinus]
+
+[htfSmaFast, htfSmaSlow, htfClose, htfAdx, htfDiPlus, htfDiMinus] =
+     request.security(syminfo.tickerid, htfTf, f_htf(), barmerge.gaps_off, barmerge.lookahead_off)
+
+bullRegime = htfClose > htfSmaSlow and htfSmaFast > htfSmaSlow
+strongTrend = bullRegime and htfAdx > adxMin and htfDiPlus > htfDiMinus
+
+// ═══════════════════════ 15m features ═══════════════════════
+rsi15 = ta.rsi(close, rsiLen)
+atr15 = ta.atr(14)
+
+// Session in UTC (TradingView hour() uses exchange timezone by default —
+// force UTC via timestamp math)
+utcHour = hour(time, "UTC")
+inSession = utcHour >= sessionStart and utcHour < sessionEnd
+
+// Micro BOS: higher low + close breaks prior high
+higherLow = low > low[1]
+breaksPriorHigh = close > high[1]
+microBos = higherLow and breaksPriorHigh
+
+rsiOk = rsi15 >= rsiLo and rsi15 <= rsiHi
+
+// Cooldown
+var int lastEntryBar = na
+cooledDown = na(lastEntryBar) or (bar_index - lastEntryBar >= cooldownBars)
+
+rawSignal = strongTrend and inSession and microBos and rsiOk and cooledDown and strategy.position_size == 0
+
+// Stop / TP from entry close (process_orders_on_close)
+swingLow = ta.lowest(low, swingLook)
+stopRaw = swingLow - atrBufMult * atr15
+stopFloor = close * (1.0 - minStopPct)
+stopPrice = math.min(stopRaw, stopFloor)
+riskAmt = close - stopPrice
+stopPct = riskAmt / close
+stopOk = stopPct >= minStopPct * 0.95 and stopPct <= maxStopPct
+tpPrice = close + rrTarget * riskAmt
+
+longCondition = rawSignal and stopOk and riskAmt > 0
+
+// Position sizing: risk `riskPct` of equity on the stop distance
+eq = strategy.equity
+qtyByRisk = riskAmt > 0 ? (eq * riskPct) / riskAmt : na
+
+if longCondition and not na(qtyByRisk) and qtyByRisk > 0
+    strategy.entry("Long", strategy.long, qty=qtyByRisk)
+    strategy.exit("XR", from_entry="Long", stop=stopPrice, limit=tpPrice)
+    lastEntryBar := bar_index
+
+// ═══════════════════════ Plots ═══════════════════════
+plot(request.security(syminfo.tickerid, htfTf, ta.sma(close, smaFastLen), barmerge.gaps_off, barmerge.lookahead_off),
+     "HTF SMA Fast", color=color.new(color.teal, 30), linewidth=1)
+plot(request.security(syminfo.tickerid, htfTf, ta.sma(close, smaSlowLen), barmerge.gaps_off, barmerge.lookahead_off),
+     "HTF SMA Slow", color=color.new(color.orange, 30), linewidth=1)
+
+plotshape(longCondition, title="Entry", style=shape.triangleup, location=location.belowbar,
+     color=color.new(color.lime, 0), size=size.small, text="L")
+
+bgcolor(showBg and inSession ? color.new(color.blue, 94) : na)
+
+// Active trade levels
+var float activeSL = na
+var float activeTP = na
+if longCondition
+    activeSL := stopPrice
+    activeTP := tpPrice
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    activeSL := na
+    activeTP := na
+
+plot(showLevels and strategy.position_size > 0 ? activeSL : na, "Stop", color=color.red, style=plot.style_linebr, linewidth=2)
+plot(showLevels and strategy.position_size > 0 ? activeTP : na, "TP", color=color.lime, style=plot.style_linebr, linewidth=2)
+
+// Debug table
+var table info = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 70), border_width=1)
+if barstate.islast
+    table.cell(info, 0, 0, "HTF ADX", text_color=color.gray)
+    table.cell(info, 1, 0, str.tostring(htfAdx, "#.0"), text_color=htfAdx > adxMin ? color.lime : color.red)
+    table.cell(info, 0, 1, "+DI / -DI", text_color=color.gray)
+    table.cell(info, 1, 1, str.tostring(htfDiPlus, "#.0") + " / " + str.tostring(htfDiMinus, "#.0"), text_color=color.white)
+    table.cell(info, 0, 2, "Bull regime", text_color=color.gray)
+    table.cell(info, 1, 2, bullRegime ? "YES" : "NO", text_color=bullRegime ? color.lime : color.red)
+    table.cell(info, 0, 3, "RSI 15m", text_color=color.gray)
+    table.cell(info, 1, 3, str.tostring(rsi15, "#.0"), text_color=rsiOk ? color.lime : color.white)
+    table.cell(info, 0, 4, "Session UTC", text_color=color.gray)
+    table.cell(info, 1, 4, inSession ? "OPEN" : "closed", text_color=inSession ? color.lime : color.gray)
+    table.cell(info, 0, 5, "WR target", text_color=color.gray)
+    table.cell(info, 1, 5, "≥50% @ 1:2 RR", text_color=color.aqua)
+    table.cell(info, 0, 6, "Trades", text_color=color.gray)
+    table.cell(info, 1, 6, str.tostring(strategy.closedtrades), text_color=color.white)
+    table.cell(info, 0, 7, "Net P&L", text_color=color.gray)
+    table.cell(info, 1, 7, str.tostring(strategy.netprofit, "#.##"), text_color=strategy.netprofit >= 0 ? color.lime : color.red)
+
+// Alerts
+alertcondition(longCondition, title="HWR Long Entry", message="High-WR Gold Momentum LONG on {{ticker}} @ {{close}}")
