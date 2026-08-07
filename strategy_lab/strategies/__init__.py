@@ -26,6 +26,7 @@ from strategy_lab.strategies.news_event import NewsEventStrategy
 from strategy_lab.strategies.mtf_confluence import MultiTimeframeConfluenceStrategy
 from strategy_lab.strategies.ensemble_voting import EnsembleVotingStrategy
 from strategy_lab.strategies.btc_4h_rsi_mr import Btc4hRsiMrStrategy
+from strategy_lab.strategies.mtf_daily_4h_rsi import MtfDaily4hRsiStrategy
 
 STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     TrendFollowingStrategy.name: TrendFollowingStrategy,
@@ -49,6 +50,7 @@ STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     MultiTimeframeConfluenceStrategy.name: MultiTimeframeConfluenceStrategy,
     EnsembleVotingStrategy.name: EnsembleVotingStrategy,
     Btc4hRsiMrStrategy.name: Btc4hRsiMrStrategy,
+    MtfDaily4hRsiStrategy.name: MtfDaily4hRsiStrategy,
 }
 
 # Families that need specialized simulators (not plain signal→engine)
@@ -84,4 +86,5 @@ __all__ = [
     "MultiTimeframeConfluenceStrategy",
     "EnsembleVotingStrategy",
     "Btc4hRsiMrStrategy",
+    "MtfDaily4hRsiStrategy",
 ]
