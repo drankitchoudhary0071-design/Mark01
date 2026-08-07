@@ -1,4 +1,4 @@
-"""Strategy registry."""
+"""Strategy registry (20 families)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,16 @@ from strategy_lab.strategies.volatility_squeeze import VolatilitySqueezeStrategy
 from strategy_lab.strategies.smc_fvg_ob import SmcFvgObStrategy
 from strategy_lab.strategies.market_making import MarketMakingStrategy
 from strategy_lab.strategies.momentum_vol_filter import MomentumVolFilterStrategy
+from strategy_lab.strategies.cointegration_pairs import CointegrationPairsStrategy
+from strategy_lab.strategies.vwap_twap import VwapTwapStrategy
+from strategy_lab.strategies.regime_adaptive import RegimeAdaptiveStrategy
+from strategy_lab.strategies.adaptive_mean_reversion import AdaptiveMeanReversionStrategy
+from strategy_lab.strategies.volume_confirmed_reversal import VolumeConfirmedReversalStrategy
+from strategy_lab.strategies.rsi_divergence import RsiDivergenceStrategy
+from strategy_lab.strategies.rebalance_arbitrage import RebalanceArbitrageStrategy
+from strategy_lab.strategies.news_event import NewsEventStrategy
+from strategy_lab.strategies.mtf_confluence import MultiTimeframeConfluenceStrategy
+from strategy_lab.strategies.ensemble_voting import EnsembleVotingStrategy
 
 STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     TrendFollowingStrategy.name: TrendFollowingStrategy,
@@ -27,13 +37,25 @@ STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     SmcFvgObStrategy.name: SmcFvgObStrategy,
     MarketMakingStrategy.name: MarketMakingStrategy,
     MomentumVolFilterStrategy.name: MomentumVolFilterStrategy,
+    CointegrationPairsStrategy.name: CointegrationPairsStrategy,
+    VwapTwapStrategy.name: VwapTwapStrategy,
+    RegimeAdaptiveStrategy.name: RegimeAdaptiveStrategy,
+    AdaptiveMeanReversionStrategy.name: AdaptiveMeanReversionStrategy,
+    VolumeConfirmedReversalStrategy.name: VolumeConfirmedReversalStrategy,
+    RsiDivergenceStrategy.name: RsiDivergenceStrategy,
+    RebalanceArbitrageStrategy.name: RebalanceArbitrageStrategy,
+    NewsEventStrategy.name: NewsEventStrategy,
+    MultiTimeframeConfluenceStrategy.name: MultiTimeframeConfluenceStrategy,
+    EnsembleVotingStrategy.name: EnsembleVotingStrategy,
 }
 
 # Families that need specialized simulators (not plain signal→engine)
 SPECIAL_SIM = {
     "statistical_arbitrage",
+    "cointegration_pairs",
     "grid_trading",
     "market_making",
+    "vwap_twap",
 }
 
 __all__ = [
@@ -49,4 +71,14 @@ __all__ = [
     "SmcFvgObStrategy",
     "MarketMakingStrategy",
     "MomentumVolFilterStrategy",
+    "CointegrationPairsStrategy",
+    "VwapTwapStrategy",
+    "RegimeAdaptiveStrategy",
+    "AdaptiveMeanReversionStrategy",
+    "VolumeConfirmedReversalStrategy",
+    "RsiDivergenceStrategy",
+    "RebalanceArbitrageStrategy",
+    "NewsEventStrategy",
+    "MultiTimeframeConfluenceStrategy",
+    "EnsembleVotingStrategy",
 ]

@@ -95,6 +95,15 @@ PARAM_NOTES: list[ParamNote] = [
     ParamNote("ob_lookback", 20, "Order-block scan window", True),
     ParamNote("vol_regime_lookback", 48, "~2 days on 1h", False),
     ParamNote("mom_lookback", 24, "~1 day momentum on 1h", False),
+    ParamNote("coint_lookback", 90, "Engle-Granger rolling window", True,
+              "Cointegration windows are frequently overfit; require WF stability."),
+    ParamNote("impact_coeff", 0.10, "Almgren-style temp impact placeholder", True,
+              "Market-impact coefficient is not calibrated to Binance microstructure."),
+    ParamNote("vol_spike_mult", 1.5, "Volume vs SMA multiplier", False),
+    ParamNote("er_trend_threshold", 0.3, "Kaufman ER trend cut", False),
+    ParamNote("min_votes", 2.0, "Ensemble net-vote threshold (equal weights)", True,
+              "Do not tune agent weights/threshold on a single IS window."),
+    ParamNote("htf_rule", "4h", "Higher timeframe for confluence", False),
 ]
 
 

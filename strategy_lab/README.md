@@ -21,6 +21,16 @@ simulators that still emit the same `Trade` / `BacktestResult` schema.
 | 8 | `strategies/smc_fvg_ob.py` | Fair Value Gap + Order Block (SMC-lite) | pandas + shared engine |
 | 9 | `strategies/market_making.py` | Bid/ask capture (**simulation only**) | MM simulator |
 | 10 | `strategies/momentum_vol_filter.py` | Dual momentum × vol percentile gate | pandas + shared engine |
+| 11 | `strategies/cointegration_pairs.py` | Engle–Granger cointegration pairs | numpy EG + two-leg sim |
+| 12 | `strategies/vwap_twap.py` | VWAP/TWAP execution vs aggressive | execution simulator |
+| 13 | `strategies/regime_adaptive.py` | Regime detect → trend/range switch | pandas + shared engine |
+| 14 | `strategies/adaptive_mean_reversion.py` | Dynamic mean by ADX regime | pandas + shared engine |
+| 15 | `strategies/volume_confirmed_reversal.py` | RSI extreme + volume spike pin | pandas + shared engine |
+| 16 | `strategies/rsi_divergence.py` | Price HH/LL vs RSI non-confirm | pandas + shared engine |
+| 17 | `strategies/rebalance_arbitrage.py` | Month-end rebalance **proxy** | calendar proxy (applicability flagged) |
+| 18 | `strategies/news_event.py` | News/event-driven | **stub — external feed required** |
+| 19 | `strategies/mtf_confluence.py` | HTF+LTF confluence | pandas resample + shared engine |
+| 20 | `strategies/ensemble_voting.py` | Multi-agent weighted vote (≥3) | ensemble + shared engine |
 
 > **Why not backtrader/vectorbt as the sole runner?**  
 > Comparability. Vectorbt is excellent for parameter sweeps on single-asset vectorized

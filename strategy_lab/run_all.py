@@ -51,6 +51,8 @@ from strategy_lab.strategies import SPECIAL_SIM, STRATEGY_REGISTRY
 from strategy_lab.strategies.grid_trading import simulate_grid
 from strategy_lab.strategies.market_making import simulate_market_making
 from strategy_lab.strategies.statistical_arbitrage import simulate_pairs
+from strategy_lab.strategies.cointegration_pairs import simulate_coint_pairs
+from strategy_lab.strategies.vwap_twap import simulate_vwap_twap
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -179,21 +181,22 @@ def _run_special(
     args: argparse.Namespace,
     costs: CostModel,
 ) -> dict[str, Any]:
-    """Holdout split for specialized simulators (grid / MM / pairs)."""
-    if name == "statistical_arbitrage":
+    """Holdout split for specialized simulators (grid / MM / pairs / VWAP)."""
+    if name in ("statistical_arbitrage", "cointegration_pairs"):
         if len(symbols) < 2:
-            raise ValueError("statistical_arbitrage needs two symbols")
+            raise ValueError(f"{name} needs two symbols")
         a, b = load_pair(symbols[0], symbols[1], args.interval, args.days)
         n = len(a)
         cut = int(n * (1 - args.oos_frac))
-        is_res = simulate_pairs(
+        sim = simulate_coint_pairs if name == "cointegration_pairs" else simulate_pairs
+        is_res = sim(
             a.iloc[:cut].reset_index(drop=True),
             b.iloc[:cut].reset_index(drop=True),
             initial_capital=args.capital,
             costs=costs,
             symbol=f"{symbols[0]}/{symbols[1]}",
         )
-        oos_res = simulate_pairs(
+        oos_res = sim(
             a.iloc[cut:].reset_index(drop=True),
             b.iloc[cut:].reset_index(drop=True),
             initial_capital=args.capital,
@@ -202,15 +205,20 @@ def _run_special(
         )
         symbol = f"{symbols[0]}/{symbols[1]}"
     else:
-        # Run on first symbol by default (and optionally each)
         symbol = symbols[0]
         df = dfs[symbol]
         n = len(df)
         cut = int(n * (1 - args.oos_frac))
         is_df = df.iloc[:cut].reset_index(drop=True)
         oos_df = df.iloc[cut:].reset_index(drop=True)
-        sim = simulate_grid if name == "grid_trading" else simulate_market_making
-        # For scalp interval MM/grid still use provided df
+        if name == "grid_trading":
+            sim = simulate_grid
+        elif name == "market_making":
+            sim = simulate_market_making
+        elif name == "vwap_twap":
+            sim = simulate_vwap_twap
+        else:
+            raise ValueError(f"No special simulator for {name}")
         is_res = sim(is_df, initial_capital=args.capital, costs=costs, symbol=symbol)
         oos_res = sim(oos_df, initial_capital=args.capital, costs=costs, symbol=symbol)
 
@@ -376,10 +384,15 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if summary_rows:
         summary = pd.DataFrame(summary_rows)
+        # Rank by OOS expectancy_R then Sharpe for side-by-side comparison
+        summary = summary.sort_values(
+            by=["oos_expectancy_R", "oos_sharpe_ratio"], ascending=False
+        ).reset_index(drop=True)
+        summary.insert(0, "rank", range(1, len(summary) + 1))
         summary_path = out_dir / "summary_comparison.csv"
         summary.to_csv(summary_path, index=False)
         print("\n" + "=" * 72)
-        print("SUMMARY (OOS)")
+        print("SUMMARY (OOS) — ranked by expectancy_R, then Sharpe")
         print(summary.to_string(index=False))
         print(f"\nWrote {summary_path}")
         print(f"Per-strategy reports in {out_dir}")
