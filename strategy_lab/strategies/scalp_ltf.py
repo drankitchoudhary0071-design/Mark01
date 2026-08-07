@@ -1,13 +1,10 @@
 """
-Scalping strategies for 1m–5m charts (TradingView-style indicators).
-
-Designed for first-6m train / next-6m OOS evaluation under costs.
-Wider ATR stops (relative to friction) are preferred — tiny stops get eaten.
+Scalping strategies for 1m–5m (vectorized signals for speed).
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,176 +13,6 @@ from strategy_lab.engine import indicators as ind
 from strategy_lab.engine.types import Signal
 from strategy_lab.strategies.base import Strategy, atr_stop_tp
 
-
-def _prep(df: pd.DataFrame, p: dict[str, Any]) -> pd.DataFrame:
-    out = df.copy()
-    out["ema_f"] = ind.ema(out["close"], int(p["ema_fast"]))
-    out["ema_s"] = ind.ema(out["close"], int(p["ema_slow"]))
-    out["ema_trend"] = ind.ema(out["close"], int(p["ema_trend"]))
-    out["rsi"] = ind.rsi(out["close"], int(p["rsi_period"]))
-    out["atr"] = ind.atr(out, int(p["atr_period"]))
-    macd_l, macd_s, macd_h = ind.macd(
-        out["close"], int(p["macd_fast"]), int(p["macd_slow"]), int(p["macd_signal"])
-    )
-    out["macd"] = macd_l
-    out["macd_sig"] = macd_s
-    out["macd_hist"] = macd_h
-    st_k, st_d = ind.stochastic(
-        out, int(p["stoch_k"]), int(p["stoch_smooth"]), int(p["stoch_d"])
-    )
-    out["stoch_k"] = st_k
-    out["stoch_d"] = st_d
-    bb_lo, bb_mid, bb_hi = ind.bollinger(out["close"], int(p["bb_period"]), float(p["bb_std"]))
-    out["bb_lo"] = bb_lo
-    out["bb_mid"] = bb_mid
-    out["bb_hi"] = bb_hi
-    adx_df = ind.adx(out, int(p["adx_period"]))
-    out["adx"] = adx_df["adx"]
-    out["vol_sma"] = out["volume"].rolling(int(p["vol_sma"])).mean()
-    # VWAP proxy: cumulative typical price * vol / cum vol (session-less rolling)
-    tp = (out["high"] + out["low"] + out["close"]) / 3.0
-    roll = int(p["vwap_window"])
-    out["vwap"] = (tp * out["volume"]).rolling(roll).sum() / out["volume"].rolling(roll).sum().replace(
-        0, np.nan
-    )
-    return out
-
-
-def _emit(
-    row: pd.Series,
-    direction: str,
-    p: dict[str, Any],
-    pattern: str,
-) -> Signal:
-    entry = float(row["close"])
-    stop, tp = atr_stop_tp(
-        entry, direction, float(row["atr"]), float(p["stop_atr"]), float(p["tp_atr"])
-    )
-    return Signal(
-        timestamp=pd.Timestamp(row["timestamp"]),
-        direction=direction,  # type: ignore[arg-type]
-        entry=entry,
-        stop=stop,
-        take_profit=tp,
-        pattern=pattern,
-        max_hold_bars=int(p["max_hold_bars"]),
-    )
-
-
-def _rule_ema_rsi(prev: pd.Series, row: pd.Series, p: dict) -> str | None:
-    """EMA cross + RSI filter + min ATR%."""
-    need = ("ema_f", "ema_s", "rsi", "atr", "close")
-    if any(pd.isna(row[c]) for c in need) or pd.isna(prev["ema_f"]):
-        return None
-    atr_pct = float(row["atr"]) / float(row["close"])
-    if atr_pct < float(p["min_atr_pct"]):
-        return None
-    long_x = prev["ema_f"] <= prev["ema_s"] and row["ema_f"] > row["ema_s"]
-    short_x = prev["ema_f"] >= prev["ema_s"] and row["ema_f"] < row["ema_s"]
-    if long_x and float(row["rsi"]) >= float(p["rsi_long_min"]):
-        return "long"
-    if short_x and float(row["rsi"]) <= float(p["rsi_short_max"]):
-        return "short"
-    return None
-
-
-def _rule_vwap_rsi(prev: pd.Series, row: pd.Series, p: dict) -> str | None:
-    """Pullback to VWAP with RSI reclaim + trend EMA filter."""
-    need = ("vwap", "rsi", "atr", "ema_trend", "close")
-    if any(pd.isna(row[c]) for c in need) or pd.isna(prev["rsi"]) or pd.isna(prev["close"]):
-        return None
-    atr_pct = float(row["atr"]) / float(row["close"])
-    if atr_pct < float(p["min_atr_pct"]):
-        return None
-    # Long: price above trend EMA, dipped to/below VWAP, RSI crosses up os
-    if (
-        float(row["close"]) > float(row["ema_trend"])
-        and float(prev["close"]) <= float(prev["vwap"])
-        and float(row["close"]) > float(row["vwap"])
-        and prev["rsi"] < p["rsi_os"]
-        and row["rsi"] >= p["rsi_os"]
-    ):
-        return "long"
-    if (
-        float(row["close"]) < float(row["ema_trend"])
-        and float(prev["close"]) >= float(prev["vwap"])
-        and float(row["close"]) < float(row["vwap"])
-        and prev["rsi"] > p["rsi_ob"]
-        and row["rsi"] <= p["rsi_ob"]
-    ):
-        return "short"
-    return None
-
-
-def _rule_bb_stoch(prev: pd.Series, row: pd.Series, p: dict) -> str | None:
-    """Bollinger touch + Stochastic cross (mean-reversion scalp)."""
-    need = ("bb_lo", "bb_hi", "stoch_k", "stoch_d", "atr", "close")
-    if any(pd.isna(row[c]) for c in need) or pd.isna(prev["stoch_k"]):
-        return None
-    atr_pct = float(row["atr"]) / float(row["close"])
-    if atr_pct < float(p["min_atr_pct"]):
-        return None
-    k0, k1 = float(prev["stoch_k"]), float(row["stoch_k"])
-    d0, d1 = float(prev["stoch_d"]), float(row["stoch_d"])
-    if float(row["close"]) <= float(row["bb_lo"]) and k0 <= d0 and k1 > d1 and k1 < 30:
-        return "long"
-    if float(row["close"]) >= float(row["bb_hi"]) and k0 >= d0 and k1 < d1 and k1 > 70:
-        return "short"
-    return None
-
-
-def _rule_macd_ema(prev: pd.Series, row: pd.Series, p: dict) -> str | None:
-    """MACD cross with EMA trend + volume spike."""
-    need = ("macd", "macd_sig", "ema_trend", "atr", "volume", "vol_sma", "close")
-    if any(pd.isna(row[c]) for c in need) or pd.isna(prev["macd"]):
-        return None
-    atr_pct = float(row["atr"]) / float(row["close"])
-    if atr_pct < float(p["min_atr_pct"]):
-        return None
-    if float(row["volume"]) < float(row["vol_sma"]) * float(p["vol_mult"]):
-        return None
-    m0, m1 = float(prev["macd"]), float(row["macd"])
-    s0, s1 = float(prev["macd_sig"]), float(row["macd_sig"])
-    if m0 <= s0 and m1 > s1 and float(row["close"]) > float(row["ema_trend"]):
-        return "long"
-    if m0 >= s0 and m1 < s1 and float(row["close"]) < float(row["ema_trend"]):
-        return "short"
-    return None
-
-
-def _rule_adx_ema_rsi(prev: pd.Series, row: pd.Series, p: dict) -> str | None:
-    """ADX trending + EMA pullback RSI bounce."""
-    need = ("adx", "ema_f", "ema_s", "rsi", "atr", "close")
-    if any(pd.isna(row[c]) for c in need) or pd.isna(prev["rsi"]):
-        return None
-    if float(row["adx"]) < float(p["adx_min"]):
-        return None
-    atr_pct = float(row["atr"]) / float(row["close"])
-    if atr_pct < float(p["min_atr_pct"]):
-        return None
-    # Uptrend: ema_f > ema_s, RSI cross up from os
-    if (
-        float(row["ema_f"]) > float(row["ema_s"])
-        and prev["rsi"] < p["rsi_os"]
-        and row["rsi"] >= p["rsi_os"]
-    ):
-        return "long"
-    if (
-        float(row["ema_f"]) < float(row["ema_s"])
-        and prev["rsi"] > p["rsi_ob"]
-        and row["rsi"] <= p["rsi_ob"]
-    ):
-        return "short"
-    return None
-
-
-RULES: dict[str, Callable] = {
-    "ema_rsi": _rule_ema_rsi,
-    "vwap_rsi": _rule_vwap_rsi,
-    "bb_stoch": _rule_bb_stoch,
-    "macd_ema": _rule_macd_ema,
-    "adx_ema_rsi": _rule_adx_ema_rsi,
-}
 
 VARIANT_META = {
     "ema_rsi": {
@@ -210,10 +37,168 @@ VARIANT_META = {
     },
 }
 
+RULES = list(VARIANT_META.keys())
+
+
+def _features(df: pd.DataFrame, p: dict[str, Any]) -> pd.DataFrame:
+    out = df.copy()
+    c = out["close"]
+    out["ema_f"] = ind.ema(c, int(p["ema_fast"]))
+    out["ema_s"] = ind.ema(c, int(p["ema_slow"]))
+    out["ema_trend"] = ind.ema(c, int(p["ema_trend"]))
+    out["rsi"] = ind.rsi(c, int(p["rsi_period"]))
+    out["atr"] = ind.atr(out, int(p["atr_period"]))
+    ml, ms, mh = ind.macd(c, int(p["macd_fast"]), int(p["macd_slow"]), int(p["macd_signal"]))
+    out["macd"], out["macd_sig"], out["macd_hist"] = ml, ms, mh
+    sk, sd = ind.stochastic(out, int(p["stoch_k"]), int(p["stoch_smooth"]), int(p["stoch_d"]))
+    out["stoch_k"], out["stoch_d"] = sk, sd
+    lo, mid, hi = ind.bollinger(c, int(p["bb_period"]), float(p["bb_std"]))
+    out["bb_lo"], out["bb_mid"], out["bb_hi"] = lo, mid, hi
+    out["adx"] = ind.adx(out, int(p["adx_period"]))["adx"]
+    out["vol_sma"] = out["volume"].rolling(int(p["vol_sma"])).mean()
+    tp = (out["high"] + out["low"] + out["close"]) / 3.0
+    roll = int(p["vwap_window"])
+    out["vwap"] = (tp * out["volume"]).rolling(roll).sum() / out["volume"].rolling(roll).sum().replace(
+        0, np.nan
+    )
+    out["atr_pct"] = out["atr"] / out["close"]
+    return out
+
+
+def _signals_from_masks(
+    out: pd.DataFrame, long_m: np.ndarray, short_m: np.ndarray, p: dict, pattern: str
+) -> list[Signal]:
+    signals: list[Signal] = []
+    idx = np.where(long_m | short_m)[0]
+    stop_atr = float(p["stop_atr"])
+    tp_atr = float(p["tp_atr"])
+    hold = int(p["max_hold_bars"])
+    for i in idx:
+        row = out.iloc[i]
+        if pd.isna(row["atr"]) or float(row["atr"]) <= 0:
+            continue
+        direction = "long" if long_m[i] else "short"
+        entry = float(row["close"])
+        stop, tp = atr_stop_tp(entry, direction, float(row["atr"]), stop_atr, tp_atr)
+        signals.append(
+            Signal(
+                timestamp=pd.Timestamp(row["timestamp"]),
+                direction=direction,  # type: ignore[arg-type]
+                entry=entry,
+                stop=stop,
+                take_profit=tp,
+                pattern=f"{pattern}_{direction}",
+                max_hold_bars=hold,
+            )
+        )
+    return signals
+
+
+def gen_ema_rsi(out: pd.DataFrame, p: dict) -> list[Signal]:
+    ef, es = out["ema_f"], out["ema_s"]
+    long_x = (ef.shift(1) <= es.shift(1)) & (ef > es)
+    short_x = (ef.shift(1) >= es.shift(1)) & (ef < es)
+    ok = out["atr_pct"] >= float(p["min_atr_pct"])
+    long_m = (long_x & (out["rsi"] >= float(p["rsi_long_min"])) & ok).fillna(False).to_numpy()
+    short_m = (short_x & (out["rsi"] <= float(p["rsi_short_max"])) & ok).fillna(False).to_numpy()
+    # no simultaneous
+    short_m = short_m & ~long_m
+    return _signals_from_masks(out, long_m, short_m, p, "scalp_ema_rsi")
+
+
+def gen_vwap_rsi(out: pd.DataFrame, p: dict) -> list[Signal]:
+    ok = out["atr_pct"] >= float(p["min_atr_pct"])
+    long_m = (
+        (out["close"] > out["ema_trend"])
+        & (out["close"].shift(1) <= out["vwap"].shift(1))
+        & (out["close"] > out["vwap"])
+        & (out["rsi"].shift(1) < float(p["rsi_os"]))
+        & (out["rsi"] >= float(p["rsi_os"]))
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = (
+        (out["close"] < out["ema_trend"])
+        & (out["close"].shift(1) >= out["vwap"].shift(1))
+        & (out["close"] < out["vwap"])
+        & (out["rsi"].shift(1) > float(p["rsi_ob"]))
+        & (out["rsi"] <= float(p["rsi_ob"]))
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = short_m & ~long_m
+    return _signals_from_masks(out, long_m, short_m, p, "scalp_vwap_rsi")
+
+
+def gen_bb_stoch(out: pd.DataFrame, p: dict) -> list[Signal]:
+    ok = out["atr_pct"] >= float(p["min_atr_pct"])
+    k, d = out["stoch_k"], out["stoch_d"]
+    long_m = (
+        (out["close"] <= out["bb_lo"])
+        & (k.shift(1) <= d.shift(1))
+        & (k > d)
+        & (k < 30)
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = (
+        (out["close"] >= out["bb_hi"])
+        & (k.shift(1) >= d.shift(1))
+        & (k < d)
+        & (k > 70)
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = short_m & ~long_m
+    return _signals_from_masks(out, long_m, short_m, p, "scalp_bb_stoch")
+
+
+def gen_macd_ema(out: pd.DataFrame, p: dict) -> list[Signal]:
+    ok = out["atr_pct"] >= float(p["min_atr_pct"])
+    vol_ok = out["volume"] >= out["vol_sma"] * float(p["vol_mult"])
+    m, s = out["macd"], out["macd_sig"]
+    long_m = (
+        (m.shift(1) <= s.shift(1))
+        & (m > s)
+        & (out["close"] > out["ema_trend"])
+        & vol_ok
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = (
+        (m.shift(1) >= s.shift(1))
+        & (m < s)
+        & (out["close"] < out["ema_trend"])
+        & vol_ok
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = short_m & ~long_m
+    return _signals_from_masks(out, long_m, short_m, p, "scalp_macd_ema")
+
+
+def gen_adx_ema_rsi(out: pd.DataFrame, p: dict) -> list[Signal]:
+    ok = (out["atr_pct"] >= float(p["min_atr_pct"])) & (out["adx"] >= float(p["adx_min"]))
+    long_m = (
+        (out["ema_f"] > out["ema_s"])
+        & (out["rsi"].shift(1) < float(p["rsi_os"]))
+        & (out["rsi"] >= float(p["rsi_os"]))
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = (
+        (out["ema_f"] < out["ema_s"])
+        & (out["rsi"].shift(1) > float(p["rsi_ob"]))
+        & (out["rsi"] <= float(p["rsi_ob"]))
+        & ok
+    ).fillna(False).to_numpy()
+    short_m = short_m & ~long_m
+    return _signals_from_masks(out, long_m, short_m, p, "scalp_adx_ema_rsi")
+
+
+GENERATORS = {
+    "ema_rsi": gen_ema_rsi,
+    "vwap_rsi": gen_vwap_rsi,
+    "bb_stoch": gen_bb_stoch,
+    "macd_ema": gen_macd_ema,
+    "adx_ema_rsi": gen_adx_ema_rsi,
+}
+
 
 class ScalpMtfStrategy(Strategy):
-    """1m/5m scalping family — pick ``variant``."""
-
     name = "scalp_ltf"
     library = "pandas scalp 1m-5m + shared engine"
 
@@ -241,7 +226,7 @@ class ScalpMtfStrategy(Strategy):
             "adx_min": 20,
             "vol_sma": 20,
             "vol_mult": 1.2,
-            "vwap_window": 78,  # ~6.5h on 5m; ~1.3h on 1m
+            "vwap_window": 78,
             "atr_period": 14,
             "min_atr_pct": 0.0004,
             "stop_atr": 1.5,
@@ -252,24 +237,17 @@ class ScalpMtfStrategy(Strategy):
     def __init__(self, **params: Any):
         super().__init__(**params)
         v = str(self.params["variant"])
-        if v not in RULES:
+        if v not in GENERATORS:
             raise ValueError(f"Unknown scalp variant {v}")
         meta = VARIANT_META[v]
         self.name = f"scalp_{v}"
         self.curve_fit_flags = list(self.curve_fit_flags) + [
             f"[SCALP] {meta['desc']}",
             f"[SCALP] Indicators: {', '.join(meta['indicators'])}",
-            "[SCALP] Train first 6m / OOS next 6m — costs matter a lot on 1m/5m.",
+            "[SCALP] Train first 6m / OOS next 6m.",
         ]
 
     def generate_signals(self, df: pd.DataFrame) -> list[Signal]:
         p = self.params
-        out = _prep(df, p)
-        rule = RULES[str(p["variant"])]
-        signals: list[Signal] = []
-        for i in range(1, len(out)):
-            side = rule(out.iloc[i - 1], out.iloc[i], p)
-            if side is None:
-                continue
-            signals.append(_emit(out.iloc[i], side, p, f"scalp_{p['variant']}_{side}"))
-        return signals
+        out = _features(df, p)
+        return GENERATORS[str(p["variant"])](out, p)

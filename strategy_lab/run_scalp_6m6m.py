@@ -31,11 +31,11 @@ TAKER = CostModel(commission_rate=0.001, half_spread=0.0002, slippage=0.0003)  #
 # Maker/limit-style (still pays some friction) — secondary, labeled clearly
 MAKER = CostModel(commission_rate=0.0002, half_spread=0.0001, slippage=0.00015)  # ~0.09% RT
 
-# Param grid searched ONLY on train (first 6m)
-STOPS = [1.0, 1.5, 2.0, 2.5]
-TPS = [1.5, 2.0, 2.5, 3.0, 4.0]
+# Param grid searched ONLY on train (first 6m) — kept small for runtime
+STOPS = [1.5, 2.0, 2.5]
+TPS = [2.0, 3.0, 4.0]
 # Keep RR sensible for scalp: TP >= stop * 0.8
-MIN_TRAIN_TRADES = 30
+MIN_TRAIN_TRADES = 40
 
 
 def split_6m_6m(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

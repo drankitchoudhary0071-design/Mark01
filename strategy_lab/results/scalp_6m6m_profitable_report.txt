@@ -1,5 +1,45 @@
-SCALPING 1m/5m — first 6m TRAIN / next 6m OOS — PROFITABLE OOS ONLY
-Symbol: BTCUSDT | risk 0.5%/trade | compounding off (flat 10k per split)
+SCALPING 1m / 5m — first 6 months TRAIN / next 6 months OOS
+Symbol: BTCUSDT (also probed PAXGUSDT 5m)
+Period: 2025-08-07 → 2026-08-07  |  split at +182 days
+Risk: 0.5%/trade
 
-No OOS-profitable scalp config under tested costs/params.
-Scalping usually dies to commission+slippage on 1m/5m.
+METHOD
+------
+- Build / select on TRAIN (first ~6m) only
+- Freeze params, evaluate OOS (next ~6m)
+- Require BOTH train and OOS: return>0, PF>1, ExpR>0, enough trades
+- Variants tried: EMA+RSI, VWAP+RSI, BB+Stoch, MACD+EMA+Vol, ADX+EMA+RSI,
+  MTF(15m/1h)+VWAP, Donchian breakout, high-vol VWAP+ADX+session filters
+- Timeframes: 5m and 1m BTC; PAXG 5m probe
+- Costs: taker ~0.30% RT, maker-ish ~0.09% RT, low ~0.05% RT, plus zero-cost diagnostic
+
+VERDICT — PROFITABLE OOS (with costs)
+--------------------------------------
+NONE.
+
+No 1m/5m scalp config was profitable on TRAIN and OOS together after
+commission + spread + slippage. Scalp stop distances are too small vs friction.
+
+Closest notes (NOT promoted — fail the train+OOS rule):
+- BTC 5m high-vol VWAP sometimes OOS-green under maker with stop 4×ATR / TP 8×ATR
+  but TRAIN was negative → luck / curve-fit, discarded.
+- BTC 5m session 12–20 UTC, atr>0.1%, adx>15, stop3/tp6 under ~0.05% RT:
+  TRAIN +2.5% PF1.20 — OOS −4.7% PF0.64 (fails OOS).
+- Without costs, small edges exist (e.g. VWAP reclaim ~+4–9% train) but vanish
+  once realistic fees are applied.
+- PAXG 5m: same story — only zero-cost configs cleared train+OOS.
+
+WHY
+---
+Median BTC 5m ATR% ≈ 0.13%. A 1.5–2×ATR stop is ~0.2–0.4% wide.
+Round-trip friction 0.09–0.30% eats most/all of the R multiple. Need many
+wins just to break even → expectancy goes negative.
+
+RECOMMENDATION
+--------------
+Do not deploy 1m/5m scalp with taker fees on BTC/PAXG from this lab.
+Use the higher-TF MTF Daily+4H RSI family (already OOS-profitable on BTC)
+instead of forcing scalping.
+
+Code: strategy_lab/strategies/scalp_ltf.py
+Runner: python3 -m strategy_lab.run_scalp_6m6m
