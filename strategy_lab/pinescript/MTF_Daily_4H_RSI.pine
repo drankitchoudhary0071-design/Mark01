@@ -1,0 +1,96 @@
+//@version=5
+// MTF Daily Trend + 4H RSI Mean-Reversion
+// Port of strategy_lab/strategies/mtf_daily_4h_rsi.py
+//
+// ★ TRADINGVIEW SETUP
+// 1. Chart: BTCUSDT.P or PAXGUSDT.P — timeframe **4 hours**
+// 2. Paste → Add to chart
+// 3. Commission 0.1%, slippage ~2 ticks
+// 4. Test ~1 year to match lab window (2025-08 → 2026-08)
+//
+// Logic (no lookahead):
+// - Daily EMA50 vs EMA200 = bull / bear regime (request.security, lookahead_off)
+// - Long  : daily bull AND RSI(14) crosses up through 30 on 4H
+// - Short : daily bear AND RSI(14) crosses down through 70 on 4H
+// - Stop 1.5×ATR / TP 3.0×ATR (1:2), risk 1% equity, compounding via strategy equity
+//
+// Lab WF OOS (compounded, ~0.30% RT costs): BTC ≈ +18% | PAXG (gold) ≈ +2%
+
+strategy(
+     title                   = "MTF Daily+4H RSI",
+     shorttitle              = "MTF-D-4H-RSI",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 3
+ )
+
+grpSig = "Signal"
+rsiLen = input.int(14, "RSI period", minval=2, group=grpSig)
+osLvl  = input.int(30, "Oversold cross-up (long)", minval=5, maxval=45, group=grpSig)
+obLvl  = input.int(70, "Overbought cross-down (short)", minval=55, maxval=95, group=grpSig)
+htfTf  = input.timeframe("D", "Higher timeframe (daily)", group=grpSig)
+emaFast = input.int(50, "Daily EMA fast", minval=2, group=grpSig)
+emaSlow = input.int(200, "Daily EMA slow", minval=2, group=grpSig)
+
+grpRisk = "Risk"
+atrLen  = input.int(14, "ATR period", minval=1, group=grpRisk)
+stopAtr = input.float(1.5, "Stop ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+tpAtr   = input.float(3.0, "TP ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+riskPct = input.float(1.0, "Risk % equity / trade", minval=0.1, step=0.1, group=grpRisk) / 100.0
+
+// ── Daily trend (no lookahead) ──
+f_daily() =>
+    eF = ta.ema(close, emaFast)
+    eS = ta.ema(close, emaSlow)
+    trend = eF > eS ? 1 : eF < eS ? -1 : 0
+    [eF, eS, trend]
+
+[dEmaF, dEmaS, dTrend] = request.security(syminfo.tickerid, htfTf, f_daily(), barmerge.gaps_off, barmerge.lookahead_off)
+
+rsiVal = ta.rsi(close, rsiLen)
+atrVal = ta.atr(atrLen)
+
+longCond  = dTrend > 0 and ta.crossover(rsiVal, osLvl)
+shortCond = dTrend < 0 and ta.crossunder(rsiVal, obLvl)
+
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    dist = math.abs(entryPrice - stopPrice)
+    dist > 0 ? riskCash / dist : na
+
+flat = strategy.position_size == 0
+ok   = not na(atrVal) and atrVal > 0 and not na(dTrend)
+
+if flat and ok and longCond
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("LX", from_entry="Long", stop=longStop, limit=longTp)
+
+if flat and ok and shortCond
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("SX", from_entry="Short", stop=shortStop, limit=shortTp)
+
+// Visuals
+plot(dEmaF, "Daily EMA50", color=color.new(color.orange, 30), linewidth=1)
+plot(dEmaS, "Daily EMA200", color=color.new(color.blue, 30), linewidth=1)
+bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
+plotshape(longCond and flat, style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.small, text="L")
+plotshape(shortCond and flat, style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small, text="S")
+
+alertcondition(longCond, "MTF Long", "MTF Daily+4H RSI long {{ticker}}")
+alertcondition(shortCond, "MTF Short", "MTF Daily+4H RSI short {{ticker}}")
