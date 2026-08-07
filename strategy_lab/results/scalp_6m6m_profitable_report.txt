@@ -1,0 +1,5 @@
+SCALPING 1m/5m — first 6m TRAIN / next 6m OOS — PROFITABLE OOS ONLY
+Symbol: BTCUSDT | risk 0.5%/trade | compounding off (flat 10k per split)
+
+No OOS-profitable scalp config under tested costs/params.
+Scalping usually dies to commission+slippage on 1m/5m.
