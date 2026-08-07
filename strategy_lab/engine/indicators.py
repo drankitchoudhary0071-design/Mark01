@@ -83,3 +83,102 @@ def rolling_zscore(series: pd.Series, lookback: int) -> pd.Series:
 
 def realized_vol(returns: pd.Series, lookback: int) -> pd.Series:
     return returns.rolling(lookback).std() * np.sqrt(lookback)
+
+
+def macd(
+    series: pd.Series,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """MACD line, signal line, histogram (TradingView defaults)."""
+    line = ema(series, fast) - ema(series, slow)
+    sig = ema(line, signal)
+    hist = line - sig
+    return line, sig, hist
+
+
+def stochastic(
+    df: pd.DataFrame,
+    k_period: int = 14,
+    k_smooth: int = 3,
+    d_period: int = 3,
+) -> tuple[pd.Series, pd.Series]:
+    """Stochastic %K / %D (TradingView-style)."""
+    lowest = df["low"].rolling(k_period).min()
+    highest = df["high"].rolling(k_period).max()
+    raw_k = 100 * (df["close"] - lowest) / (highest - lowest).replace(0, np.nan)
+    k = raw_k.rolling(k_smooth).mean()
+    d = k.rolling(d_period).mean()
+    return k, d
+
+
+def supertrend(
+    df: pd.DataFrame, period: int = 10, multiplier: float = 3.0
+) -> tuple[pd.Series, pd.Series]:
+    """
+    Supertrend line + direction (+1 bull / -1 bear).
+    Classic TradingView Supertrend (ATR-based).
+    """
+    atr_s = atr(df, period)
+    hl2 = (df["high"] + df["low"]) / 2.0
+    basic_upper = hl2 + multiplier * atr_s
+    basic_lower = hl2 - multiplier * atr_s
+
+    n = len(df)
+    st = np.full(n, np.nan)
+    direction = np.ones(n)
+    final_upper = np.full(n, np.nan)
+    final_lower = np.full(n, np.nan)
+    close = df["close"].to_numpy()
+    bu = basic_upper.to_numpy()
+    bl = basic_lower.to_numpy()
+
+    for i in range(n):
+        if np.isnan(bu[i]) or np.isnan(bl[i]):
+            continue
+        if i == 0 or np.isnan(final_upper[i - 1]):
+            final_upper[i] = bu[i]
+            final_lower[i] = bl[i]
+            direction[i] = 1.0
+            st[i] = final_lower[i]
+            continue
+
+        final_upper[i] = (
+            bu[i]
+            if bu[i] < final_upper[i - 1] or close[i - 1] > final_upper[i - 1]
+            else final_upper[i - 1]
+        )
+        final_lower[i] = (
+            bl[i]
+            if bl[i] > final_lower[i - 1] or close[i - 1] < final_lower[i - 1]
+            else final_lower[i - 1]
+        )
+
+        if direction[i - 1] > 0:
+            if close[i] < final_lower[i]:
+                direction[i] = -1.0
+                st[i] = final_upper[i]
+            else:
+                direction[i] = 1.0
+                st[i] = final_lower[i]
+        else:
+            if close[i] > final_upper[i]:
+                direction[i] = 1.0
+                st[i] = final_lower[i]
+            else:
+                direction[i] = -1.0
+                st[i] = final_upper[i]
+
+    return (
+        pd.Series(st, index=df.index),
+        pd.Series(direction, index=df.index),
+    )
+
+
+def cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    tp = (df["high"] + df["low"] + df["close"]) / 3.0
+    sma_tp = tp.rolling(period).mean()
+    mad = tp.rolling(period).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=True)
+    return (tp - sma_tp) / (0.015 * mad.replace(0, np.nan))
+
