@@ -1,0 +1,13 @@
+# Local caches & regenerated artifacts
+cache/
+results/*
+!results/.gitkeep
+!results/summary_comparison.csv
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+*.egg-info/
