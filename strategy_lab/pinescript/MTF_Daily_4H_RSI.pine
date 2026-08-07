@@ -1,141 +1,189 @@
 //@version=6
-// MTF Daily Trend + 4H RSI Mean-Reversion  (FIXED, Pine v6)
-// Port of strategy_lab/strategies/mtf_daily_4h_rsi.py
+//══════════════════════════════════════════════════════════════════════════════
+// MTF Daily + 4H RSI   |  Pine v6  |  Strategy Tester + on-chart results
+//══════════════════════════════════════════════════════════════════════════════
+// HOW TO USE
+// 1) Open BTCUSDT.P (or PAXGUSDT.P)
+// 2) Set chart timeframe to 4H
+// 3) Pine Editor → paste → "Add to chart"
+// 4) Open Strategy Tester (bottom panel) → Overview / Performance / List of Trades
+// 5) Properties: Commission = 0.1% (Percent of equity), capital 10000
 //
-// ★ FIXES:
-// 1. Daily HTF NON-REPAINTING — sirf CLOSED daily bar
-// 2. Sizing = percent_of_equity
-// 3. SL/TP entry pe lock + har bar re-arm
-// 4. Long/Short SL-TP direction sanity checks
-// 5. PnL labels: green=profit, red=loss
-// 6. Sirf 4H chart
-//
-// ★ SETUP: BTCUSDT.P / PAXGUSDT.P — timeframe **4 hours**
-// Commission 0.1% | Slippage ~3 | ~1 year range
+// RULES
+// • Daily EMA50 vs EMA200 = trend (confirmed daily bar only)
+// • Long  : Daily bull + RSI cross up 30
+// • Short : Daily bear + RSI cross down 70
+// • Exit  : Stop 1.5×ATR  |  TP 3.0×ATR
+//══════════════════════════════════════════════════════════════════════════════
 
 strategy(
-     title                   = "MTF Daily+4H RSI (fixed v6)",
-     shorttitle              = "MTF-D-4H-RSI-F",
+     title                   = "MTF Daily+4H RSI",
+     shorttitle              = "MTF RSI",
      overlay                 = true,
      pyramiding              = 0,
-     process_orders_on_close = true,
-     calc_on_every_tick      = false,
-     calc_on_order_fills     = false,
-     dynamic_requests        = false,
      initial_capital         = 10000,
      default_qty_type        = strategy.percent_of_equity,
-     default_qty_value       = 1,
+     default_qty_value       = 10,
      commission_type         = strategy.commission.percent,
      commission_value        = 0.1,
-     slippage                = 3,
+     slippage                = 2,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
      margin_long             = 100,
-     margin_short            = 100
+     margin_short            = 100,
+     max_labels_count        = 100,
+     max_bars_back           = 5000
  )
 
-grpSig = "Signal"
-rsiLen  = input.int(14, "RSI period", minval=2, group=grpSig)
-osLvl   = input.int(30, "Oversold cross-up (long)", minval=5, maxval=45, group=grpSig)
-obLvl   = input.int(70, "Overbought cross-down (short)", minval=55, maxval=95, group=grpSig)
-htfTf   = input.timeframe("1D", "Higher timeframe (daily)", group=grpSig)
-emaFast = input.int(50, "Daily EMA fast", minval=2, group=grpSig)
-emaSlow = input.int(200, "Daily EMA slow", minval=2, group=grpSig)
+//── Inputs ────────────────────────────────────────────────────────────────────
+string G1 = "1) Signal"
+int    rsiLen  = input.int(14,  "RSI Length",            minval=2, group=G1)
+int    osLvl   = input.int(30,  "Long: RSI cross above", minval=5,  maxval=50, group=G1)
+int    obLvl   = input.int(70,  "Short: RSI cross below",minval=50, maxval=95, group=G1)
+string htf     = input.timeframe("1D", "Higher Timeframe", group=G1)
+int    emaFast = input.int(50,  "HTF EMA Fast",          minval=2, group=G1)
+int    emaSlow = input.int(200, "HTF EMA Slow",          minval=2, group=G1)
 
-grpRisk = "Risk"
-atrLen  = input.int(14, "ATR period", minval=1, group=grpRisk)
-stopAtr = input.float(1.5, "Stop ATR multiple", minval=0.1, step=0.1, group=grpRisk)
-tpAtr   = input.float(3.0, "TP ATR multiple", minval=0.1, step=0.1, group=grpRisk)
-riskPct = input.float(1.0, "Risk % equity / trade", minval=0.1, step=0.1, group=grpRisk) / 100.0
+string G2 = "2) Risk"
+int    atrLen  = input.int(14,   "ATR Length",           minval=1, group=G2)
+float  stopMult= input.float(1.5,"Stop = ATR ×",         minval=0.1, step=0.1, group=G2)
+float  tpMult  = input.float(3.0,"Take Profit = ATR ×",  minval=0.1, step=0.1, group=G2)
+float  riskPct = input.float(1.0,"Risk per trade %",     minval=0.1, step=0.1, group=G2)
 
-grpVis = "Visuals"
-showPnL = input.bool(true, "Show closed-trade PnL labels", group=grpVis)
+string G3 = "3) Display"
+bool   showDash  = input.bool(true,  "Show results table",   group=G3)
+bool   showMarks = input.bool(true,  "Show entry markers",   group=G3)
+bool   showLevels= input.bool(true,  "Show SL / TP lines",   group=G3)
 
-tfOk = timeframe.isminutes and timeframe.multiplier == 240
-if barstate.islastconfirmedhistory and not tfOk
-    runtime.error("Use this strategy on the 4H chart only.")
+//── Higher timeframe trend (confirmed / non-repaint) ──────────────────────────
+htfEmaFast = request.security(syminfo.tickerid, htf, ta.ema(close, emaFast)[1], barmerge.gaps_off, barmerge.lookahead_on)
+htfEmaSlow = request.security(syminfo.tickerid, htf, ta.ema(close, emaSlow)[1], barmerge.gaps_off, barmerge.lookahead_on)
+htfBull    = htfEmaFast > htfEmaSlow
+htfBear    = htfEmaFast < htfEmaSlow
 
-// Confirmed closed daily EMA trend (no HTF lookahead / repaint)
-f_daily_closed() =>
-    eF = ta.ema(close, emaFast)
-    eS = ta.ema(close, emaSlow)
-    trend = eF > eS ? 1 : eF < eS ? -1 : 0
-    [eF[1], eS[1], trend[1]]
+//── LTF indicators ────────────────────────────────────────────────────────────
+float rsi = ta.rsi(close, rsiLen)
+float atr = ta.atr(atrLen)
 
-[dEmaF, dEmaS, dTrend] = request.security(
-     syminfo.tickerid, htfTf, f_daily_closed(),
-     barmerge.gaps_off, barmerge.lookahead_on)
+bool longSignal  = htfBull and ta.crossover(rsi, osLvl)
+bool shortSignal = htfBear and ta.crossunder(rsi, obLvl)
 
-rsiVal = ta.rsi(close, rsiLen)
-atrVal = ta.atr(atrLen)
+//── Position size: % equity so ~riskPct% is lost if SL hits ───────────────────
+f_size(float entry, float stop) =>
+    float stopDist = math.abs(entry - stop)
+    float distPct  = entry > 0 ? stopDist / entry * 100.0 : na
+    distPct > 0 ? riskPct / distPct * 100.0 : na   // percent_of_equity qty
 
-longCond  = tfOk and not na(dTrend) and dTrend > 0 and ta.crossover(rsiVal, osLvl)
-shortCond = tfOk and not na(dTrend) and dTrend < 0 and ta.crossunder(rsiVal, obLvl)
+//── Entries + exits ───────────────────────────────────────────────────────────
+var float slPrice = na
+var float tpPrice = na
 
-longStopX  = close - stopAtr * atrVal
-longTpX    = close + tpAtr * atrVal
-shortStopX = close + stopAtr * atrVal
-shortTpX   = close - tpAtr * atrVal
+bool canTrade = strategy.position_size == 0 and not na(atr) and atr > 0 and not na(rsi)
 
-f_qty_pct(entryPrice, stopPrice) =>
-    distPct = math.abs(entryPrice - stopPrice) / entryPrice
-    distPct > 0 ? 100.0 * riskPct / distPct : na
+if canTrade and longSignal
+    float sl = close - stopMult * atr
+    float tp = close + tpMult * atr
+    float q  = f_size(close, sl)
+    if not na(q) and q > 0 and sl < close and tp > close
+        slPrice := sl
+        tpPrice := tp
+        strategy.entry("Long", strategy.long, qty=q)
+        strategy.exit("L-Exit", from_entry="Long", stop=sl, limit=tp)
 
-var float lockedSL = na
-var float lockedTP = na
+if canTrade and shortSignal
+    float sl = close + stopMult * atr
+    float tp = close - tpMult * atr
+    float q  = f_size(close, sl)
+    if not na(q) and q > 0 and sl > close and tp < close
+        slPrice := sl
+        tpPrice := tp
+        strategy.entry("Short", strategy.short, qty=q)
+        strategy.exit("S-Exit", from_entry="Short", stop=sl, limit=tp)
 
-flat = strategy.position_size == 0
-ok   = not na(atrVal) and atrVal > 0
-
-if flat and ok and longCond
-    qtyPct = f_qty_pct(close, longStopX)
-    if not na(qtyPct) and qtyPct > 0 and longStopX < close and longTpX > close
-        lockedSL := longStopX
-        lockedTP := longTpX
-        strategy.entry("Long", strategy.long, qty=qtyPct)
-        strategy.exit("LX", from_entry="Long", stop=lockedSL, limit=lockedTP)
-
-if flat and ok and shortCond
-    qtyPct = f_qty_pct(close, shortStopX)
-    if not na(qtyPct) and qtyPct > 0 and shortStopX > close and shortTpX < close
-        lockedSL := shortStopX
-        lockedTP := shortTpX
-        strategy.entry("Short", strategy.short, qty=qtyPct)
-        strategy.exit("SX", from_entry="Short", stop=lockedSL, limit=lockedTP)
-
-if strategy.position_size > 0 and not na(lockedSL) and not na(lockedTP)
-    strategy.exit("LX", from_entry="Long", stop=lockedSL, limit=lockedTP)
-
-if strategy.position_size < 0 and not na(lockedSL) and not na(lockedTP)
-    strategy.exit("SX", from_entry="Short", stop=lockedSL, limit=lockedTP)
+// Keep exit alive while in trade
+if strategy.position_size > 0 and not na(slPrice)
+    strategy.exit("L-Exit", from_entry="Long", stop=slPrice, limit=tpPrice)
+if strategy.position_size < 0 and not na(slPrice)
+    strategy.exit("S-Exit", from_entry="Short", stop=slPrice, limit=tpPrice)
 
 if strategy.position_size == 0 and strategy.position_size[1] != 0
-    lockedSL := na
-    lockedTP := na
+    slPrice := na
+    tpPrice := na
 
-plot(dEmaF, "Daily EMA50 (confirmed)", color=color.new(color.orange, 30), linewidth=1)
-plot(dEmaS, "Daily EMA200 (confirmed)", color=color.new(color.blue, 30), linewidth=1)
-bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
-plotshape(longCond and flat, style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.small, text="L")
-plotshape(shortCond and flat, style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.small, text="S")
-plot(strategy.position_size > 0 ? lockedSL : na, "Long SL", color=color.red, style=plot.style_linebr)
-plot(strategy.position_size > 0 ? lockedTP : na, "Long TP", color=color.green, style=plot.style_linebr)
-plot(strategy.position_size < 0 ? lockedSL : na, "Short SL", color=color.red, style=plot.style_linebr)
-plot(strategy.position_size < 0 ? lockedTP : na, "Short TP", color=color.green, style=plot.style_linebr)
+//── Chart visuals ─────────────────────────────────────────────────────────────
+plot(htfEmaFast, "HTF EMA Fast", color=color.new(color.orange, 0), linewidth=2)
+plot(htfEmaSlow, "HTF EMA Slow", color=color.new(color.blue, 0),   linewidth=2)
+bgcolor(htfBull ? color.new(color.teal, 92) : htfBear ? color.new(color.red, 92) : na)
 
-if showPnL and strategy.closedtrades > 0
-    n = strategy.closedtrades
-    prevN = nz(strategy.closedtrades[1], 0)
-    if n > prevN
-        // v6: oldest trades may trim — use first_index-safe access
-        tradeIdx = n - 1
-        p = strategy.closedtrades.profit(tradeIdx)
-        isWin = p > 0
-        label.new(
-             bar_index, high,
-             (isWin ? "+" : "") + str.tostring(p, "#.##"),
-             style=label.style_label_down,
-             color=isWin ? color.new(color.teal, 20) : color.new(color.maroon, 20),
-             textcolor=color.white,
-             size=size.small)
+plotshape(showMarks and longSignal and canTrade,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.lime,  size=size.small, text="BUY")
+plotshape(showMarks and shortSignal and canTrade, title="Short", style=shape.triangledown, location=location.abovebar, color=color.fuchsia, size=size.small, text="SELL")
 
-alertcondition(longCond, "MTF Long", "MTF Daily+4H RSI long {{ticker}}")
-alertcondition(shortCond, "MTF Short", "MTF Daily+4H RSI short {{ticker}}")
+plot(showLevels and strategy.position_size != 0 ? slPrice : na, "Stop Loss",   color=color.red,   style=plot.style_linebr, linewidth=2)
+plot(showLevels and strategy.position_size != 0 ? tpPrice : na, "Take Profit", color=color.lime,  style=plot.style_linebr, linewidth=2)
+
+//── ON-CHART RESULTS TABLE (Strategy Tester numbers) ──────────────────────────
+if showDash and barstate.islast
+    int   trades   = strategy.closedtrades
+    float netPnl   = strategy.netprofit
+    float openPnl  = strategy.openprofit
+    float equity   = strategy.equity
+    float startEq  = strategy.initial_capital
+    float retPct   = startEq != 0 ? netPnl / startEq * 100.0 : 0.0
+
+    int wins = 0
+    int loss = 0
+    float grossWin = 0.0
+    float grossLoss = 0.0
+    if trades > 0
+        int first = strategy.closedtrades.first_index
+        for i = first to first + trades - 1
+            float p = strategy.closedtrades.profit(i)
+            if p > 0
+                wins += 1
+                grossWin += p
+            else if p < 0
+                loss += 1
+                grossLoss += math.abs(p)
+
+    float winRate = trades > 0 ? wins * 100.0 / trades : 0.0
+    float pf = grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? 999.0 : 0.0)
+    float avgPnl = trades > 0 ? netPnl / trades : 0.0
+
+    var table dash = table.new(position.top_right, 2, 10, bgcolor=color.new(#1e222d, 10), border_width=1, border_color=color.gray)
+    color hdr = color.new(#2962ff, 0)
+    color pos = color.new(#089981, 0)
+    color neg = color.new(#f23645, 0)
+
+    table.cell(dash, 0, 0, "MTF Daily+4H RSI", text_color=color.white, bgcolor=hdr, text_size=size.small)
+    table.cell(dash, 1, 0, syminfo.ticker + " " + timeframe.period, text_color=color.white, bgcolor=hdr, text_size=size.small)
+
+    table.cell(dash, 0, 1, "Net Profit", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(netPnl, "#.##"), text_color=netPnl >= 0 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 2, "Return %", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(retPct, "#.##") + "%", text_color=retPct >= 0 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 3, "Closed Trades", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(trades), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 4, "Win Rate", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(winRate, "#.#") + "%", text_color=winRate >= 50 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 5, "Profit Factor", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 5, str.tostring(pf, "#.##"), text_color=pf >= 1 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 6, "Avg Trade", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 6, str.tostring(avgPnl, "#.##"), text_color=avgPnl >= 0 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 7, "Open PnL", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 7, str.tostring(openPnl, "#.##"), text_color=openPnl >= 0 ? pos : neg, text_size=size.small)
+
+    table.cell(dash, 0, 8, "Equity", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 8, str.tostring(equity, "#.##"), text_color=color.white, text_size=size.small)
+
+    table.cell(dash, 0, 9, "Wins / Losses", text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 9, str.tostring(wins) + " / " + str.tostring(loss), text_color=color.white, text_size=size.small)
+
+//── Alerts ────────────────────────────────────────────────────────────────────
+alertcondition(longSignal,  "Long Entry",  "MTF RSI LONG {{ticker}} @ {{close}}")
+alertcondition(shortSignal, "Short Entry", "MTF RSI SHORT {{ticker}} @ {{close}}")
