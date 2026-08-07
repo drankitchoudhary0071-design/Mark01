@@ -1,23 +1,17 @@
 # Pine Script ports
 
-| Script | Python source | Notes |
-|--------|---------------|-------|
-| [`RSI_Divergence.pine`](RSI_Divergence.pine) | `strategies/rsi_divergence.py` | Bull/bear pivot RSI divergence, ATR stop/TP |
+| Script | Python source | Chart TF | Notes |
+|--------|---------------|----------|-------|
+| [`BTC_4H_RSI_MR.pine`](BTC_4H_RSI_MR.pine) | `strategies/btc_4h_rsi_mr.py` | **4H BTCUSDT** | TV-aligned RSI MR (no lookahead) — preferred |
+| [`RSI_Divergence.pine`](RSI_Divergence.pine) | `strategies/rsi_divergence.py` | 1H | Lab profit had pivot lookahead; TV often loses |
 
-## RSI Divergence — quick start
+## BTC 4H RSI Mean-Reversion (recommended)
 
-1. TradingView → chart **PAXGUSDT** or **BTCUSDT**, timeframe **1H** (matches lab default).
-2. Pine Editor → paste `RSI_Divergence.pine` → **Add to chart**.
-3. Strategy Tester → set commission **0.1%** (lab uses ~0.10%/side + spread/slip).
+1. TradingView → **BTCUSDT** (or `BTCUSDT.P` for shorts on spot restrictions) → **4H**
+2. Paste `BTC_4H_RSI_MR.pine` → Add to chart
+3. Strategy Tester → Commission **0.1%**
+4. Properties match lab: RSI 14 / 30–70 cross, stop 1.5 ATR, TP 3.0 ATR (1:2)
 
-### Defaults (same as Python)
-
-| Param | Value |
-|-------|-------|
-| RSI period | 14 |
-| Swing lookback | 5 |
-| Max pivot gap | 40 bars |
-| Stop | 1.5 × ATR(14) |
-| TP | 2.5 × ATR(14) |
-
-Pivot confirmation waits `swingLookback` bars after the extreme (same as the Python window definition), so entries are delayed by that many bars — not lookahead.
+```bash
+python -m strategy_lab.run_btc_4h_rsi_mr
+```
