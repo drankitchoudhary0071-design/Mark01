@@ -1,35 +1,27 @@
-//@version=5
-// MTF Daily Trend + 4H RSI Mean-Reversion  (FIXED)
+//@version=6
+// MTF Daily Trend + 4H RSI Mean-Reversion  (FIXED, Pine v6)
 // Port of strategy_lab/strategies/mtf_daily_4h_rsi.py
 //
-// ★ FIXES vs older script (jo loss ko profit dikha raha tha):
-// 1. Daily HTF NON-REPAINTING — sirf CLOSED daily bar (expression[1] + lookahead_on)
-//    Pehle forming daily EMA se future leak / galat side entries ho sakti thin
-// 2. Sizing = percent_of_equity (cash/qty confusion hata di) — PnL sign/size sahi
-// 3. SL/TP entry pe lock (var) + har bar re-arm — bracket cancel / wrong fill nahi
-// 4. Chart pe closed-trade PnL label (red=loss, green=profit) — verify karo
-// 5. Sirf 4H chart — warna ATR/qty galat
+// ★ FIXES:
+// 1. Daily HTF NON-REPAINTING — sirf CLOSED daily bar
+// 2. Sizing = percent_of_equity
+// 3. SL/TP entry pe lock + har bar re-arm
+// 4. Long/Short SL-TP direction sanity checks
+// 5. PnL labels: green=profit, red=loss
+// 6. Sirf 4H chart
 //
-// ★ TRADINGVIEW SETUP
-// 1. Chart: BTCUSDT.P / PAXGUSDT.P — timeframe **4 hours** (zaroori)
-// 2. Paste → Add to chart
-// 3. Properties → Commission 0.1% of equity | Slippage ~2–3 ticks
-// 4. Range ~1 year
-//
-// Logic:
-// - Daily EMA50 vs EMA200 = bull / bear (confirmed daily only)
-// - Long  : daily bull AND RSI(14) cross up through 30 on 4H
-// - Short : daily bear AND RSI(14) cross down through 70 on 4H
-// - Stop 1.5×ATR / TP 3.0×ATR | risk 1% equity
+// ★ SETUP: BTCUSDT.P / PAXGUSDT.P — timeframe **4 hours**
+// Commission 0.1% | Slippage ~3 | ~1 year range
 
 strategy(
-     title                   = "MTF Daily+4H RSI (fixed)",
+     title                   = "MTF Daily+4H RSI (fixed v6)",
      shorttitle              = "MTF-D-4H-RSI-F",
      overlay                 = true,
      pyramiding              = 0,
      process_orders_on_close = true,
      calc_on_every_tick      = false,
      calc_on_order_fills     = false,
+     dynamic_requests        = false,
      initial_capital         = 10000,
      default_qty_type        = strategy.percent_of_equity,
      default_qty_value       = 1,
@@ -44,7 +36,7 @@ grpSig = "Signal"
 rsiLen  = input.int(14, "RSI period", minval=2, group=grpSig)
 osLvl   = input.int(30, "Oversold cross-up (long)", minval=5, maxval=45, group=grpSig)
 obLvl   = input.int(70, "Overbought cross-down (short)", minval=55, maxval=95, group=grpSig)
-htfTf   = input.timeframe("D", "Higher timeframe (daily)", group=grpSig)
+htfTf   = input.timeframe("1D", "Higher timeframe (daily)", group=grpSig)
 emaFast = input.int(50, "Daily EMA fast", minval=2, group=grpSig)
 emaSlow = input.int(200, "Daily EMA slow", minval=2, group=grpSig)
 
@@ -57,37 +49,32 @@ riskPct = input.float(1.0, "Risk % equity / trade", minval=0.1, step=0.1, group=
 grpVis = "Visuals"
 showPnL = input.bool(true, "Show closed-trade PnL labels", group=grpVis)
 
-// Must be 4H — lab / Pine matched on 4H only
 tfOk = timeframe.isminutes and timeframe.multiplier == 240
 if barstate.islastconfirmedhistory and not tfOk
     runtime.error("Use this strategy on the 4H chart only.")
 
-// ── Daily trend: LAST CLOSED daily bar only (no repaint / no lookahead leak) ──
-f_daily() =>
+// Confirmed closed daily EMA trend (no HTF lookahead / repaint)
+f_daily_closed() =>
     eF = ta.ema(close, emaFast)
     eS = ta.ema(close, emaSlow)
     trend = eF > eS ? 1 : eF < eS ? -1 : 0
-    [eF, eS, trend]
+    [eF[1], eS[1], trend[1]]
 
-// PineCoders non-repaint HTF: series[1] + lookahead_on → confirmed HTF values
 [dEmaF, dEmaS, dTrend] = request.security(
-     syminfo.tickerid, htfTf, f_daily()[1],
+     syminfo.tickerid, htfTf, f_daily_closed(),
      barmerge.gaps_off, barmerge.lookahead_on)
 
 rsiVal = ta.rsi(close, rsiLen)
 atrVal = ta.atr(atrLen)
 
-longCond  = tfOk and dTrend > 0 and ta.crossover(rsiVal, osLvl)
-shortCond = tfOk and dTrend < 0 and ta.crossunder(rsiVal, obLvl)
+longCond  = tfOk and not na(dTrend) and dTrend > 0 and ta.crossover(rsiVal, osLvl)
+shortCond = tfOk and not na(dTrend) and dTrend < 0 and ta.crossunder(rsiVal, obLvl)
 
-// Candidate SL/TP from signal bar close (locked into var on entry)
 longStopX  = close - stopAtr * atrVal
 longTpX    = close + tpAtr * atrVal
 shortStopX = close + stopAtr * atrVal
 shortTpX   = close - tpAtr * atrVal
 
-// Position size as % of equity so $ risk ≈ riskPct * equity at stop
-// pos% = risk% / stop_distance%
 f_qty_pct(entryPrice, stopPrice) =>
     distPct = math.abs(entryPrice - stopPrice) / entryPrice
     distPct > 0 ? 100.0 * riskPct / distPct : na
@@ -96,37 +83,34 @@ var float lockedSL = na
 var float lockedTP = na
 
 flat = strategy.position_size == 0
-ok   = not na(atrVal) and atrVal > 0 and not na(dTrend)
+ok   = not na(atrVal) and atrVal > 0
 
 if flat and ok and longCond
     qtyPct = f_qty_pct(close, longStopX)
-    // Sanity: stop must be below entry for long; TP above
     if not na(qtyPct) and qtyPct > 0 and longStopX < close and longTpX > close
         lockedSL := longStopX
         lockedTP := longTpX
         strategy.entry("Long", strategy.long, qty=qtyPct)
+        strategy.exit("LX", from_entry="Long", stop=lockedSL, limit=lockedTP)
 
 if flat and ok and shortCond
     qtyPct = f_qty_pct(close, shortStopX)
-    // Sanity: stop must be above entry for short; TP below
     if not na(qtyPct) and qtyPct > 0 and shortStopX > close and shortTpX < close
         lockedSL := shortStopX
         lockedTP := shortTpX
         strategy.entry("Short", strategy.short, qty=qtyPct)
+        strategy.exit("SX", from_entry="Short", stop=lockedSL, limit=lockedTP)
 
-// Re-arm exits every bar with LOCKED levels (no trailing / no flip)
 if strategy.position_size > 0 and not na(lockedSL) and not na(lockedTP)
     strategy.exit("LX", from_entry="Long", stop=lockedSL, limit=lockedTP)
 
 if strategy.position_size < 0 and not na(lockedSL) and not na(lockedTP)
     strategy.exit("SX", from_entry="Short", stop=lockedSL, limit=lockedTP)
 
-// Clear locks when flat again
-if flat
+if strategy.position_size == 0 and strategy.position_size[1] != 0
     lockedSL := na
     lockedTP := na
 
-// ── Visuals ──
 plot(dEmaF, "Daily EMA50 (confirmed)", color=color.new(color.orange, 30), linewidth=1)
 plot(dEmaS, "Daily EMA200 (confirmed)", color=color.new(color.blue, 30), linewidth=1)
 bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
@@ -137,12 +121,13 @@ plot(strategy.position_size > 0 ? lockedTP : na, "Long TP", color=color.green, s
 plot(strategy.position_size < 0 ? lockedSL : na, "Short SL", color=color.red, style=plot.style_linebr)
 plot(strategy.position_size < 0 ? lockedTP : na, "Short TP", color=color.green, style=plot.style_linebr)
 
-// Closed-trade PnL labels — green only if profit > 0, red if loss (honest)
 if showPnL and strategy.closedtrades > 0
     n = strategy.closedtrades
-    // Fire once when a new trade just closed
-    if n > nz(strategy.closedtrades[1])
-        p = strategy.closedtrades.profit(n - 1)
+    prevN = nz(strategy.closedtrades[1], 0)
+    if n > prevN
+        // v6: oldest trades may trim — use first_index-safe access
+        tradeIdx = n - 1
+        p = strategy.closedtrades.profit(tradeIdx)
         isWin = p > 0
         label.new(
              bar_index, high,
