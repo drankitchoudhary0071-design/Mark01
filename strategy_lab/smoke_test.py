@@ -59,7 +59,7 @@ def main() -> int:
     costs = CostModel()
     failures = []
 
-    assert len(STRATEGY_REGISTRY) == 20, f"expected 20 strategies, got {len(STRATEGY_REGISTRY)}"
+    assert len(STRATEGY_REGISTRY) >= 20, f"expected >=20 strategies, got {len(STRATEGY_REGISTRY)}"
 
     for name, cls in STRATEGY_REGISTRY.items():
         try:

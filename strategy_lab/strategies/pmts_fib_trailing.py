@@ -69,13 +69,23 @@ class PmtsFibTrailingStrategy(Strategy):
             "sl_level": 0.7,
             # SL buffer in price points (gold $): below 0.7 for longs, above for shorts
             "sl_buffer_pts": 3.0,
+            # TP: "anchor" = swing extreme; "rr" = entry ± rr_multiple * |entry-sl|
+            "tp_mode": "anchor",
+            "rr_multiple": 3.0,
             "max_hold_bars": 500,
         }
 
     def __init__(self, **params: Any):
         super().__init__(**params)
+        mode = str(self.params.get("tp_mode", "anchor"))
+        rr = self.params.get("rr_multiple", 3.0)
+        tp_desc = (
+            "TP = swing anchor"
+            if mode == "anchor"
+            else f"TP = {rr}× SL distance (R-multiple)"
+        )
         self.curve_fit_flags = list(self.curve_fit_flags) + [
-            "[PMTS] Entry 0.6 fib touch; SL 0.7 ± buffer pts; TP = swing anchor.",
+            f"[PMTS] Entry 0.6 fib touch; SL 0.7 ± buffer pts; {tp_desc}.",
             "[PMTS] Close beyond 0.7 flips structure (wick alone does not).",
         ]
 
@@ -86,6 +96,16 @@ class PmtsFibTrailingStrategy(Strategy):
         sl_lvl = float(p["sl_level"])
         buf = float(p["sl_buffer_pts"])
         hold = int(p["max_hold_bars"])
+        tp_mode = str(p.get("tp_mode", "anchor"))
+        rr_mult = float(p.get("rr_multiple", 3.0))
+
+        def resolve_tp(side: str, entry: float, stop: float, anchor_tp: float) -> float:
+            if tp_mode == "anchor":
+                return anchor_tp
+            risk = abs(entry - stop)
+            if side == "long":
+                return entry + rr_mult * risk
+            return entry - rr_mult * risk
 
         high = df["high"].astype(float)
         low = df["low"].astype(float)
@@ -160,7 +180,7 @@ class PmtsFibTrailingStrategy(Strategy):
                     entry_px = anchor_high - rng * entry_lvl
                     sl_raw = anchor_high - rng * sl_lvl
                     sl_px = sl_raw - buf  # 2–5 pts below 0.7 for gold long
-                    tp_px = anchor_high
+                    tp_px = resolve_tp("long", entry_px, sl_px, anchor_high)
 
                     if (not in_pos) and lo <= entry_px:
                         long_signal = True
@@ -181,7 +201,7 @@ class PmtsFibTrailingStrategy(Strategy):
                     entry_px = anchor_low + rng * entry_lvl
                     sl_raw = anchor_low + rng * sl_lvl
                     sl_px = sl_raw + buf  # 2–5 pts above 0.7 for gold short
-                    tp_px = anchor_low
+                    tp_px = resolve_tp("short", entry_px, sl_px, anchor_low)
 
                     if (not in_pos) and hi >= entry_px:
                         short_signal = True
