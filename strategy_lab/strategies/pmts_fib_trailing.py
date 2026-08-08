@@ -109,6 +109,8 @@ class PmtsFibTrailingStrategy(Strategy):
             "htf_bias": "",  # e.g. "4h" — only long in HTF bull / short in HTF bear
             "htf_ema": 50,
             "reentry_cooldown": 0,  # bars after exit before next entry
+            # After TP: arm locked entry fib; require leave-zone then retouch for next entry
+            "retouch_after_tp": False,
         }
 
     def __init__(self, **params: Any):
@@ -140,6 +142,7 @@ class PmtsFibTrailingStrategy(Strategy):
         htf = str(p.get("htf_bias", "") or "").strip()
         htf_ema = int(p.get("htf_ema", 50))
         cooldown = int(p.get("reentry_cooldown", 0))
+        retouch_after_tp = bool(p.get("retouch_after_tp", False))
 
         def resolve_tp(side: str, entry: float, stop: float, anchor_tp: float) -> float:
             if tp_mode == "anchor":
@@ -170,11 +173,58 @@ class PmtsFibTrailingStrategy(Strategy):
         pos_side: Optional[str] = None
         pos_stop = 0.0
         pos_tp = 0.0
+        pos_entry = 0.0
         pos_entry_i = -1
         last_exit_i = -10_000
         active_sig: Optional[Signal] = None
 
+        # Locked fib retouch after TP
+        armed = False
+        armed_side: Optional[str] = None
+        armed_entry = 0.0
+        armed_sl = 0.0
+        armed_away = False
+
         signals: list[Signal] = []
+
+        def clear_arm() -> None:
+            nonlocal armed, armed_side, armed_entry, armed_sl, armed_away
+            armed = False
+            armed_side = None
+            armed_entry = 0.0
+            armed_sl = 0.0
+            armed_away = False
+
+        def emit(side: str, entry: float, stop: float, tp: float, pattern: str) -> None:
+            nonlocal in_pos, pos_side, pos_stop, pos_tp, pos_entry, pos_entry_i, active_sig
+            if side == "long" and not (stop < entry < tp):
+                return
+            if side == "short" and not (tp < entry < stop):
+                return
+            sig = Signal(
+                timestamp=tsi,
+                direction=side,  # type: ignore[arg-type]
+                entry=float(entry),
+                stop=float(stop),
+                take_profit=float(tp),
+                pattern=pattern,
+                max_hold_bars=hold,
+                meta={
+                    "fib_entry": float(entry),
+                    "anchor_low": float(anchor_low) if anchor_low else None,
+                    "anchor_high": float(anchor_high) if anchor_high else None,
+                    "soft_exits": {},
+                    "retouch": pattern.endswith("retouch"),
+                },
+            )
+            signals.append(sig)
+            in_pos = True
+            pos_side = side
+            pos_stop = float(stop)
+            pos_tp = float(tp)
+            pos_entry = float(entry)
+            pos_entry_i = i
+            active_sig = sig
 
         for i in range(len(df)):
             if not np.isnan(ph.iloc[i]):
@@ -190,16 +240,29 @@ class PmtsFibTrailingStrategy(Strategy):
             # Manage open "virtual" position for signal spacing (stop/tp/time/flip)
             if in_pos:
                 exited = False
-                exit_px = None
+                exit_reason = ""
                 if pos_side == "long":
-                    if lo <= pos_stop or hi >= pos_tp:
-                        exited = True
+                    if lo <= pos_stop:
+                        exited, exit_reason = True, "stop"
+                    elif hi >= pos_tp:
+                        exited, exit_reason = True, "take_profit"
                 else:
-                    if hi >= pos_stop or lo <= pos_tp:
-                        exited = True
+                    if hi >= pos_stop:
+                        exited, exit_reason = True, "stop"
+                    elif lo <= pos_tp:
+                        exited, exit_reason = True, "take_profit"
                 if i - pos_entry_i >= hold:
-                    exited = True
+                    exited, exit_reason = True, "time"
                 if exited:
+                    if retouch_after_tp and exit_reason == "take_profit" and pos_side:
+                        armed = True
+                        armed_side = pos_side
+                        armed_entry = pos_entry
+                        armed_sl = pos_stop
+                        # At TP, price is already away from entry toward target
+                        armed_away = True
+                    else:
+                        clear_arm()
                     in_pos = False
                     pos_side = None
                     active_sig = None
@@ -208,6 +271,7 @@ class PmtsFibTrailingStrategy(Strategy):
             long_signal = False
             short_signal = False
             entry_px = sl_px = tp_px = None
+            sl_raw = None
 
             if direction is None:
                 if last_sh is not None and last_sl is not None:
@@ -238,11 +302,18 @@ class PmtsFibTrailingStrategy(Strategy):
                     rr_ok = planned >= min_rr
                     cd_ok = (i - last_exit_i) >= cooldown
 
-                    if (not in_pos) and lo <= entry_px and bias_ok and range_ok and rr_ok and cd_ok:
+                    # Live fib entry when flat (still allowed while armed for locked retouch)
+                    if (
+                        (not in_pos)
+                        and lo <= entry_px
+                        and bias_ok
+                        and range_ok
+                        and rr_ok
+                        and cd_ok
+                    ):
                         long_signal = True
 
                     if cl < sl_raw:
-                        # structure flip
                         if flip_exit and in_pos and pos_side == "long" and active_sig is not None:
                             soft = active_sig.meta.setdefault("soft_exits", {})
                             soft[tsi] = cl
@@ -254,6 +325,7 @@ class PmtsFibTrailingStrategy(Strategy):
                         direction = "bear"
                         anchor_high = prev_high
                         anchor_low = lo
+                        clear_arm()
 
             elif direction == "bear":
                 assert anchor_low is not None and anchor_high is not None
@@ -273,7 +345,14 @@ class PmtsFibTrailingStrategy(Strategy):
                     rr_ok = planned >= min_rr
                     cd_ok = (i - last_exit_i) >= cooldown
 
-                    if (not in_pos) and hi >= entry_px and bias_ok and range_ok and rr_ok and cd_ok:
+                    if (
+                        (not in_pos)
+                        and hi >= entry_px
+                        and bias_ok
+                        and range_ok
+                        and rr_ok
+                        and cd_ok
+                    ):
                         short_signal = True
 
                     if cl > sl_raw:
@@ -288,55 +367,38 @@ class PmtsFibTrailingStrategy(Strategy):
                         direction = "bull"
                         anchor_low = prev_low
                         anchor_high = hi
+                        clear_arm()
 
-            if long_signal and entry_px is not None and sl_px is not None and tp_px is not None:
-                if sl_px < entry_px < tp_px:
-                    sig = Signal(
-                        timestamp=tsi,
-                        direction="long",
-                        entry=float(entry_px),
-                        stop=float(sl_px),
-                        take_profit=float(tp_px),
-                        pattern="pmts_fib_long",
-                        max_hold_bars=hold,
-                        meta={
-                            "fib_entry": float(entry_px),
-                            "anchor_low": float(anchor_low) if anchor_low else None,
-                            "anchor_high": float(anchor_high) if anchor_high else None,
-                            "soft_exits": {},
-                        },
-                    )
-                    signals.append(sig)
-                    in_pos = True
-                    pos_side = "long"
-                    pos_stop = float(sl_px)
-                    pos_tp = float(tp_px)
-                    pos_entry_i = i
-                    active_sig = sig
+            # Locked retouch after TP: leave zone then return to locked entry
+            # Runs before live emit so a pure retouch is tagged; live still works if flat.
+            if retouch_after_tp and armed and (not in_pos) and armed_side is not None:
+                if armed_side == "long":
+                    if cl > armed_entry:
+                        armed_away = True
+                    if armed_away and lo <= armed_entry:
+                        tp_live = float(anchor_high) if anchor_high is not None else armed_entry + abs(
+                            armed_entry - armed_sl
+                        )
+                        emit("long", armed_entry, armed_sl, tp_live, "pmts_fib_long_retouch")
+                        clear_arm()
+                        long_signal = False  # already entered
+                else:
+                    if cl < armed_entry:
+                        armed_away = True
+                    if armed_away and hi >= armed_entry:
+                        tp_live = float(anchor_low) if anchor_low is not None else armed_entry - abs(
+                            armed_sl - armed_entry
+                        )
+                        emit("short", armed_entry, armed_sl, tp_live, "pmts_fib_short_retouch")
+                        clear_arm()
+                        short_signal = False
 
-            if short_signal and entry_px is not None and sl_px is not None and tp_px is not None:
-                if tp_px < entry_px < sl_px:
-                    sig = Signal(
-                        timestamp=tsi,
-                        direction="short",
-                        entry=float(entry_px),
-                        stop=float(sl_px),
-                        take_profit=float(tp_px),
-                        pattern="pmts_fib_short",
-                        max_hold_bars=hold,
-                        meta={
-                            "fib_entry": float(entry_px),
-                            "anchor_low": float(anchor_low) if anchor_low else None,
-                            "anchor_high": float(anchor_high) if anchor_high else None,
-                            "soft_exits": {},
-                        },
-                    )
-                    signals.append(sig)
-                    in_pos = True
-                    pos_side = "short"
-                    pos_stop = float(sl_px)
-                    pos_tp = float(tp_px)
-                    pos_entry_i = i
-                    active_sig = sig
+            if long_signal and (not in_pos) and entry_px is not None and sl_px is not None and tp_px is not None:
+                emit("long", entry_px, sl_px, tp_px, "pmts_fib_long")
+                clear_arm()
+
+            if short_signal and (not in_pos) and entry_px is not None and sl_px is not None and tp_px is not None:
+                emit("short", entry_px, sl_px, tp_px, "pmts_fib_short")
+                clear_arm()
 
         return signals
