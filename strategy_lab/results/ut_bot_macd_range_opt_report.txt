@@ -1,0 +1,56 @@
+UT Bot + MACD + Range Filter — PARAMETER OPTIMIZATION
+Capital $10,000 | costs ~0.30% RT | risk 1%/trade | 365d
+Train 60% / OOS 40% search, then full-year verify
+
+================================================================================
+ORIGINAL USER PRESET (LOSES)
+================================================================================
+UT buy 1.5/51 | sell 1.9/41 | MACD 3/61/12 | Range 51/1.0 | SL1.5 TP3
+BTC 15m: n=1268 WR=33% Ret=-97%
+BTC 30m: n=651  WR=36% Ret=-79%
+
+================================================================================
+BEST PROFITABLE CONFIGS (after costs)
+================================================================================
+
+1) RECOMMENDED — BTCUSDT 30m (best for 15m/30m request)
+   UT key/ATR     : 3.0 / 20   (buy = sell)
+   MACD           : 8 / 21 / 9
+   Range Filter   : 50 / 3.0  + slope ON
+   Entry          : UT cross + MACD cross same bar + RF side/slope
+   Stop           : UT trailing stop
+   TP             : 6 × ATR(14)
+   Cooldown       : 4 bars
+   Hold max       : 80 bars
+
+   FULL YEAR: Trades=39 | W/L=20/19 | WR=51.3% | PF=1.36
+              MaxDD=-3.9% | PnL=+$632 | Ret=+6.3% | Equity=$10,632
+   OOS (40%): Ret=+2.3% | PF=1.26 | MaxDD=-3.8% | n=18
+
+2) ALT — BTCUSDT 30m (RF 25/2.5, SL ATR 2.0 / TP 5, trail)
+   FULL: n=51 WR=51% PF=1.23 MaxDD=-3.7% Ret=+5.4% Equity=$10,544
+
+3) PAXGUSDT 1h (ATR stops, no trail)
+   UT 5.0/10 | MACD 16/36/9 | RF 40/2.0 | SL2.5 TP5 | cd=4 | macd_cross | slope
+   FULL: n=19 W/L=11/8 WR=58% PF=1.74 MaxDD=-1.9% Ret=+4.2% Equity=$10,418
+   OOS: Ret=+3.9% WR=64% PF=2.31 MaxDD=-0.9%
+
+4) PAXGUSDT 1h (trail stop)
+   UT 4.0/14 | MACD 12/26/9 | RF 50/3.0 | trail SL | TP5 | cd=4
+   FULL: n=20 W/L=14/6 WR=70% PF=2.08 MaxDD=-2.2% Ret=+5.3% Equity=$10,532
+
+================================================================================
+15m STATUS
+================================================================================
+Same optimized params on 15m still LOSE (BTC ~-15%, PAXG ~-22%).
+15m stays too noisy vs ~0.30% RT costs — use 30m (BTC) or 1h (PAXG).
+
+================================================================================
+WHAT CHANGED VS ORIGINAL
+================================================================================
+- Higher UT key (3–5 vs 1.5) → fewer whipsaw crosses
+- Classic MACD 8/21/9 or 12/26/9 instead of 3/61/12
+- Stronger Range Filter mult (2–3 vs 1.0) + slope filter
+- Require MACD cross (not just MACD state)
+- Wider TP (5–6R) + cooldown
+- Optional UT trail as stop

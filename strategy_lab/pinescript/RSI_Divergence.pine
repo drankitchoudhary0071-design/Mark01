@@ -1,0 +1,160 @@
+//@version=5
+// RSI Divergence Strategy
+// Port of strategy_lab/strategies/rsi_divergence.py
+//
+// HOW TO USE ON TRADINGVIEW
+// 1. Chart: PAXGUSDT or BTCUSDT (Binance) — backtest used 1h
+// 2. Pine Editor → paste → Add to chart
+// 3. Strategy Tester → commission 0.1% recommended (matches lab cost model)
+//
+// Logic (matches Python defaults):
+// - Pivot high/low with swing_lookback bars left & right (default 5)
+// - Bearish div: price higher-high + RSI lower-high → short
+// - Bullish div: price lower-low  + RSI higher-low  → long
+// - Max gap between pivots: 40 bars
+// - Stop = 1.5 × ATR(14), TP = 2.5 × ATR(14)  (~1:1.67 RR)
+//
+// NOTE: Pivot confirmation needs `swingLookback` bars AFTER the pivot,
+// so entries fire with that delay (same as the Python pivot definition).
+// Defaults are textbook — not curve-fit. Re-validate OOS if you change them.
+
+strategy(
+     title                   = "RSI Divergence (strategy_lab)",
+     shorttitle              = "RSI-Div",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 3
+ )
+
+// ═══════════════════════ Inputs ═══════════════════════
+grpSig = "Divergence"
+rsiPeriod     = input.int(14, "RSI period", minval=2, group=grpSig)
+swingLookback = input.int(5, "Swing lookback (pivot L/R)", minval=1, group=grpSig,
+     tooltip="Must match Python swing_lookback. Pivot confirms this many bars after the extreme.")
+maxPivotGap   = input.int(40, "Max bars between pivots", minval=2, group=grpSig)
+
+grpRisk = "Risk (ATR)"
+atrPeriod = input.int(14, "ATR period", minval=1, group=grpRisk)
+stopAtr   = input.float(1.5, "Stop ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+tpAtr     = input.float(2.5, "Take-profit ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+riskPct   = input.float(1.0, "Risk per trade % of equity", minval=0.1, step=0.1, group=grpRisk) / 100.0
+
+grpVis = "Visuals"
+showDivLines = input.bool(true, "Draw divergence lines", group=grpVis)
+showPivots   = input.bool(false, "Mark pivot highs/lows", group=grpVis)
+showRsiPane  = input.bool(true, "Show RSI in data window / plot", group=grpVis)
+
+// ═══════════════════════ Indicators ═══════════════════════
+rsiVal = ta.rsi(close, rsiPeriod)
+atrVal = ta.atr(atrPeriod)
+
+// Confirmed pivots (ta.pivothigh/low return value on the pivot bar, na elsewhere,
+// confirmed only after `swingLookback` bars — equivalent to Python window max/min)
+ph = ta.pivothigh(high, swingLookback, swingLookback)
+pl = ta.pivotlow(low, swingLookback, swingLookback)
+
+// ═══════════════════════ Store last two pivots ═══════════════════════
+var float lastPhPrice = na
+var float lastPhRsi   = na
+var int   lastPhBar   = na
+var float prevPhPrice = na
+var float prevPhRsi   = na
+var int   prevPhBar   = na
+
+var float lastPlPrice = na
+var float lastPlRsi   = na
+var int   lastPlBar   = na
+var float prevPlPrice = na
+var float prevPlRsi   = na
+var int   prevPlBar   = na
+
+bearDiv = false
+bullDiv = false
+
+// When a new pivot high confirms (value appears at bar_index - swingLookback)
+if not na(ph)
+    prevPhPrice := lastPhPrice
+    prevPhRsi   := lastPhRsi
+    prevPhBar   := lastPhBar
+    lastPhPrice := ph
+    lastPhRsi   := rsiVal[swingLookback]
+    lastPhBar   := bar_index - swingLookback
+
+    if not na(prevPhPrice) and not na(prevPhRsi) and not na(lastPhRsi)
+        gap = lastPhBar - prevPhBar
+        if gap > 0 and gap <= maxPivotGap
+            priceHH = lastPhPrice > prevPhPrice
+            rsiLH   = lastPhRsi < prevPhRsi
+            bearDiv := priceHH and rsiLH
+
+if not na(pl)
+    prevPlPrice := lastPlPrice
+    prevPlRsi   := lastPlRsi
+    prevPlBar   := lastPlBar
+    lastPlPrice := pl
+    lastPlRsi   := rsiVal[swingLookback]
+    lastPlBar   := bar_index - swingLookback
+
+    if not na(prevPlPrice) and not na(prevPlRsi) and not na(lastPlRsi)
+        gap = lastPlBar - prevPlBar
+        if gap > 0 and gap <= maxPivotGap
+            priceLL = lastPlPrice < prevPlPrice
+            rsiHL   = lastPlRsi > prevPlRsi
+            bullDiv := priceLL and rsiHL
+
+// ═══════════════════════ Position sizing (ATR risk) ═══════════════════════
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    stopDist = math.abs(entryPrice - stopPrice)
+    stopDist > 0 ? riskCash / stopDist : na
+
+canTrade = not na(atrVal) and atrVal > 0 and strategy.position_size == 0
+
+// ═══════════════════════ Entries / exits ═══════════════════════
+if canTrade and bullDiv
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTp)
+
+if canTrade and bearDiv
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTp)
+
+// ═══════════════════════ Visuals ═══════════════════════
+plotshape(showPivots and not na(ph), title="Pivot High", style=shape.triangledown,
+     location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, offset=-swingLookback)
+plotshape(showPivots and not na(pl), title="Pivot Low", style=shape.triangleup,
+     location=location.belowbar, color=color.new(color.green, 40), size=size.tiny, offset=-swingLookback)
+
+plotshape(bullDiv, title="Bull Div", style=shape.labelup, location=location.belowbar,
+     color=color.new(color.teal, 0), text="Bull Div", textcolor=color.white, size=size.small)
+plotshape(bearDiv, title="Bear Div", style=shape.labeldown, location=location.abovebar,
+     color=color.new(color.maroon, 0), text="Bear Div", textcolor=color.white, size=size.small)
+
+if showDivLines and bullDiv and not na(prevPlBar) and not na(lastPlBar)
+    line.new(prevPlBar, prevPlPrice, lastPlBar, lastPlPrice, color=color.teal, width=2)
+if showDivLines and bearDiv and not na(prevPhBar) and not na(lastPhBar)
+    line.new(prevPhBar, prevPhPrice, lastPhBar, lastPhPrice, color=color.maroon, width=2)
+
+// RSI for data window (not a separate pane — overlay strategy)
+plotchar(showRsiPane ? rsiVal : na, title="RSI", char="", location=location.absolute,
+     color=color.new(color.purple, 100))
+
+// Alert conditions
+alertcondition(bullDiv, title="Bullish RSI Divergence", message="RSI bullish divergence on {{ticker}}")
+alertcondition(bearDiv, title="Bearish RSI Divergence", message="RSI bearish divergence on {{ticker}}")

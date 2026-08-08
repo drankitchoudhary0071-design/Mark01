@@ -1,0 +1,14 @@
+UT Bot + MACD + Range Filter | Capital $10,000 | 365d | costs ~0.30% RT | risk 1%
+UT buy 1.5/51 | UT sell 1.9/41 | MACD 3/61/12 | Range 51/1.0 | SL 1.5×ATR TP 3×ATR
+
+Sym        TF       n    W    L    WR%     PF  MaxDD%      PnL$    Ret%   Equity$
+------------------------------------------------------------------------------------------
+BTCUSDT    15m   1268  415  853   32.7   0.39   -96.9     -9688   -96.9       312
+BTCUSDT    30m    651  236  415   36.3   0.57   -79.9     -7939   -79.4      2061
+PAXGUSDT   15m   1387  278 1109   20.0   0.11   -98.5     -9850   -98.5       150
+PAXGUSDT   30m    646  177  469   27.4   0.30   -83.0     -8288   -82.9      1712
+
+NOTES
+- 30m built by resampling 15m (no lookahead).
+- Entry requires all 3: UT cross + MACD side + Range Filter side.
+- One trade at a time; opposite confluence can flip/exit early.

@@ -1,0 +1,93 @@
+//@version=5
+// TV MTF: EMA + MACD + Stochastic  (best WF return among 4-indicator set)
+// Port of strategy_lab tv_mtf_ema_macd_stoch
+//
+// ★ SETUP: BTCUSDT.P — timeframe **4 hours**
+// Commission 0.1% | ~1 year
+//
+// HTF Daily: EMA50 > EMA200 = bull (only longs), < = bear (only shorts)
+// LTF 4H  : MACD line crosses signal + Stochastic not extreme opposite
+// Stop 1.5×ATR / TP 3.0×ATR | risk 1% equity
+//
+// Lab WF OOS BTC: ~46 trades, WR~48%, PF~1.46, ret~+13%
+
+strategy(
+     title                   = "TV MTF EMA+MACD+Stoch",
+     shorttitle              = "TV-EMA-MACD-Stoch",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 3
+ )
+
+grp = "Signal"
+emaFast = input.int(50, "Daily EMA fast", group=grp)
+emaSlow = input.int(200, "Daily EMA slow", group=grp)
+htfTf   = input.timeframe("D", "HTF", group=grp)
+macdFast = input.int(12, "MACD fast", group=grp)
+macdSlow = input.int(26, "MACD slow", group=grp)
+macdSig  = input.int(9, "MACD signal", group=grp)
+stochK   = input.int(14, "%K length", group=grp)
+stochSm  = input.int(3, "%K smooth", group=grp)
+stochD   = input.int(3, "%D length", group=grp)
+stochOs  = input.int(20, "Stoch OS floor (shorts need above)", group=grp)
+stochOb  = input.int(80, "Stoch OB ceil (longs need below)", group=grp)
+
+grpR = "Risk"
+atrLen  = input.int(14, "ATR", group=grpR)
+stopAtr = input.float(1.5, "Stop ATR", group=grpR)
+tpAtr   = input.float(3.0, "TP ATR", group=grpR)
+riskPct = input.float(1.0, "Risk %", group=grpR) / 100.0
+
+f_daily() =>
+    eF = ta.ema(close, emaFast)
+    eS = ta.ema(close, emaSlow)
+    trend = eF > eS ? 1 : eF < eS ? -1 : 0
+    [eF, eS, trend]
+
+[dEmaF, dEmaS, dTrend] = request.security(syminfo.tickerid, htfTf, f_daily(), barmerge.gaps_off, barmerge.lookahead_off)
+
+[macdLine, signalLine, _] = ta.macd(close, macdFast, macdSlow, macdSig)
+k = ta.sma(ta.stoch(close, high, low, stochK), stochSm)
+d = ta.sma(k, stochD)
+atrVal = ta.atr(atrLen)
+
+longCond  = dTrend > 0 and ta.crossover(macdLine, signalLine) and k < stochOb
+shortCond = dTrend < 0 and ta.crossunder(macdLine, signalLine) and k > stochOs
+
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    dist = math.abs(entryPrice - stopPrice)
+    dist > 0 ? riskCash / dist : na
+
+flat = strategy.position_size == 0
+ok   = not na(atrVal) and atrVal > 0 and not na(dTrend)
+
+if flat and ok and longCond
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("LX", from_entry="Long", stop=longStop, limit=longTp)
+
+if flat and ok and shortCond
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("SX", from_entry="Short", stop=shortStop, limit=shortTp)
+
+plot(dEmaF, "Daily EMA50", color=color.new(color.orange, 30))
+plot(dEmaS, "Daily EMA200", color=color.new(color.blue, 30))
+bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
+plotshape(longCond and flat, style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.tiny)
+plotshape(shortCond and flat, style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.tiny)
