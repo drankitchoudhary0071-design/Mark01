@@ -30,6 +30,7 @@ from strategy_lab.strategies.mtf_daily_4h_rsi import MtfDaily4hRsiStrategy
 from strategy_lab.strategies.mtf_rsi import MtfRsiStrategy
 from strategy_lab.strategies.tv_mtf_indicators import TvMtfStrategy
 from strategy_lab.strategies.scalp_ltf import ScalpMtfStrategy
+from strategy_lab.strategies.pmts_fib_trailing import PmtsFibTrailingStrategy
 
 STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     TrendFollowingStrategy.name: TrendFollowingStrategy,
@@ -57,6 +58,7 @@ STRATEGY_REGISTRY: dict[str, Type[Strategy]] = {
     MtfRsiStrategy.name: MtfRsiStrategy,
     "tv_mtf": TvMtfStrategy,
     "scalp_ltf": ScalpMtfStrategy,
+    PmtsFibTrailingStrategy.name: PmtsFibTrailingStrategy,
 }
 
 # Families that need specialized simulators (not plain signal→engine)
@@ -96,4 +98,5 @@ __all__ = [
     "MtfRsiStrategy",
     "TvMtfStrategy",
     "ScalpMtfStrategy",
+    "PmtsFibTrailingStrategy",
 ]
