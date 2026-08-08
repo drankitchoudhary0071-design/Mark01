@@ -1,0 +1,83 @@
+//@version=6
+//══════════════════════════════════════════════════════════════════════════════
+// Scalp HV VWAP (5m) — LAB WARNING: NOT OOS-profitable after real costs
+// Train 6m / OOS 6m on BTCUSDT: edge dies under commission+slippage.
+// Kept for study / paper only. Prefer MTF Daily+4H RSI for live.
+//══════════════════════════════════════════════════════════════════════════════
+strategy(
+     title                   = "Scalp HV VWAP 5m (paper)",
+     shorttitle              = "ScalpHV",
+     overlay                 = true,
+     pyramiding              = 0,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 5,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 2,
+     process_orders_on_close = true,
+     margin_long             = 100,
+     margin_short            = 100
+ )
+
+tfOk = timeframe.isminutes and (timeframe.multiplier == 5 or timeframe.multiplier == 1)
+rsiLen = input.int(7, "RSI")
+emaF = input.int(50, "EMA fast")
+emaS = input.int(200, "EMA slow")
+adxLen = input.int(14, "ADX")
+adxMin = input.float(20, "Min ADX")
+atrLen = input.int(14, "ATR")
+minAtrPct = input.float(0.15, "Min ATR %", step=0.01) / 100.0
+stopMult = input.float(4.0, "SL ATR×")
+tpMult = input.float(8.0, "TP ATR×")
+session = input.session("1200-2000", "Session (exchange)")
+
+ema50 = ta.ema(close, emaF)
+ema200 = ta.ema(close, emaS)
+rsi = ta.rsi(close, rsiLen)
+atr = ta.atr(atrLen)
+[adxVal, _, _] = ta.dmi(adxLen, adxLen)
+vwapV = ta.vwap(hlc3)
+inSession = not na(time(timeframe.period, session))
+atrOk = atr / close >= minAtrPct
+volOk = adxVal >= adxMin
+
+longSig = tfOk and inSession and atrOk and volOk and ema50 > ema200 and ta.crossover(close, vwapV) and ta.crossover(rsi, 30)
+shortSig = tfOk and inSession and atrOk and volOk and ema50 < ema200 and ta.crossunder(close, vwapV) and ta.crossunder(rsi, 70)
+
+var float slTicks = na
+var float tpTicks = na
+flat = strategy.position_size == 0
+f_ticks(mult) => math.max(1.0, math.round(mult * atr / syminfo.mintick))
+
+if flat and longSig
+    slTicks := f_ticks(stopMult)
+    tpTicks := f_ticks(tpMult)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("LX", from_entry="Long", loss=slTicks, profit=tpTicks)
+if flat and shortSig
+    slTicks := f_ticks(stopMult)
+    tpTicks := f_ticks(tpMult)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("SX", from_entry="Short", loss=slTicks, profit=tpTicks)
+if strategy.position_size > 0 and not na(slTicks)
+    strategy.exit("LX", from_entry="Long", loss=slTicks, profit=tpTicks)
+if strategy.position_size < 0 and not na(slTicks)
+    strategy.exit("SX", from_entry="Short", loss=slTicks, profit=tpTicks)
+
+plot(ema50, "EMA50", color=color.orange)
+plot(ema200, "EMA200", color=color.blue)
+plot(vwapV, "VWAP", color=color.purple)
+plotshape(longSig and flat, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.tiny)
+plotshape(shortSig and flat, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+
+if barstate.islast
+    var table t = table.new(position.top_right, 2, 4, bgcolor=color.new(color.black, 20))
+    table.cell(t, 0, 0, "WARNING", text_color=color.white, bgcolor=color.red)
+    table.cell(t, 1, 0, "Not OOS-profitable after costs", text_color=color.white, bgcolor=color.red)
+    table.cell(t, 0, 1, "Net Profit", text_color=color.white)
+    table.cell(t, 1, 1, str.tostring(strategy.netprofit, "#.##"), text_color=color.white)
+    table.cell(t, 0, 2, "Trades", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(strategy.closedtrades), text_color=color.white)
+    table.cell(t, 0, 3, "Use instead", text_color=color.white)
+    table.cell(t, 1, 3, "MTF Daily+4H RSI", text_color=color.lime)

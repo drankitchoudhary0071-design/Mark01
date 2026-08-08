@@ -1,0 +1,76 @@
+PMTS Fib — more trades with WR/DD protected | PAXG | $10,000 | 365d
+Hard goal: n≥20, WR≥50%, MaxDD≥-3.5%, profitable
+Baseline: 1h sw3 ent0.6 buf3 anchor hold72
+Configs: 1056 | Hard hits: 16 | Soft hits: 43
+
+HARD GOAL TOP
+--------------------------------------------------------------------------------------------------------------
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=12/8 WR=60.0% PF=2.06 DD= -1.7% PnL=$+296 Ret=+3.0% Eq=$10296
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=12/8 WR=60.0% PF=2.06 DD= -1.7% PnL=$+296 Ret=+3.0% Eq=$10296
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.56 DD= -2.6% PnL=$+206 Ret=+2.1% Eq=$10206
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.56 DD= -2.6% PnL=$+206 Ret=+2.1% Eq=$10206
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.51 DD= -2.6% PnL=$+191 Ret=+1.9% Eq=$10191
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.51 DD= -2.6% PnL=$+191 Ret=+1.9% Eq=$10191
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.51 DD= -2.6% PnL=$+187 Ret=+1.9% Eq=$10187
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.51 DD= -2.6% PnL=$+187 Ret=+1.9% Eq=$10187
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+4h   sw=2 ent=0.5 buf=4.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 22 W/L=12/10 WR=54.5% PF=1.23 DD= -3.4% PnL=$+105 Ret=+1.0% Eq=$10105
+4h   sw=2 ent=0.5 buf=4.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 22 W/L=12/10 WR=54.5% PF=1.23 DD= -3.4% PnL=$+105 Ret=+1.0% Eq=$10105
+4h   sw=2 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=11/10 WR=52.4% PF=1.19 DD= -3.4% PnL=$+89 Ret=+0.9% Eq=$10089
+4h   sw=2 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=11/10 WR=52.4% PF=1.19 DD= -3.4% PnL=$+89 Ret=+0.9% Eq=$10089
+4h   sw=3 ent=0.5 buf=5.0 hold=24 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=- | n= 24 W/L=12/12 WR=50.0% PF=1.08 DD= -3.3% PnL=$+43 Ret=+0.4% Eq=$10043
+4h   sw=3 ent=0.5 buf=5.0 hold=24 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=- | n= 24 W/L=12/12 WR=50.0% PF=1.08 DD= -3.3% PnL=$+43 Ret=+0.4% Eq=$10043
+
+SOFT GOAL TOP
+--------------------------------------------------------------------------------------------------------------
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=12/8 WR=60.0% PF=2.06 DD= -1.7% PnL=$+296 Ret=+3.0% Eq=$10296
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=12/8 WR=60.0% PF=2.06 DD= -1.7% PnL=$+296 Ret=+3.0% Eq=$10296
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 19 W/L=11/8 WR=57.9% PF=2.00 DD= -1.7% PnL=$+277 Ret=+2.8% Eq=$10277
+4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 19 W/L=11/8 WR=57.9% PF=2.00 DD= -1.7% PnL=$+277 Ret=+2.8% Eq=$10277
+4h   sw=3 ent=0.5 buf=5.0 hold=18 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 17 W/L=9/8 WR=52.9% PF=2.02 DD= -1.6% PnL=$+279 Ret=+2.8% Eq=$10279
+4h   sw=3 ent=0.5 buf=5.0 hold=18 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 17 W/L=9/8 WR=52.9% PF=2.02 DD= -1.6% PnL=$+279 Ret=+2.8% Eq=$10279
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=- | n= 17 W/L=9/8 WR=52.9% PF=1.77 DD= -2.9% PnL=$+351 Ret=+3.5% Eq=$10351
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=False minRng=20.0 minRR=2.0 htf=- | n= 17 W/L=9/8 WR=52.9% PF=1.77 DD= -2.9% PnL=$+351 Ret=+3.5% Eq=$10351
+1h   sw=3 ent=0.6 buf=5.0 hold=48 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=- | n= 17 W/L=9/8 WR=52.9% PF=1.73 DD= -2.9% PnL=$+335 Ret=+3.3% Eq=$10335
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.56 DD= -2.6% PnL=$+206 Ret=+2.1% Eq=$10206
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.56 DD= -2.6% PnL=$+206 Ret=+2.1% Eq=$10206
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.51 DD= -2.6% PnL=$+191 Ret=+1.9% Eq=$10191
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.51 DD= -2.6% PnL=$+191 Ret=+1.9% Eq=$10191
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.51 DD= -2.6% PnL=$+187 Ret=+1.9% Eq=$10187
+4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.51 DD= -2.6% PnL=$+187 Ret=+1.9% Eq=$10187
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=- | n= 17 W/L=8/9 WR=47.1% PF=1.63 DD= -2.9% PnL=$+304 Ret=+3.0% Eq=$10304
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=True minRng=20.0 minRR=2.0 htf=- | n= 17 W/L=8/9 WR=47.1% PF=1.63 DD= -2.9% PnL=$+304 Ret=+3.0% Eq=$10304
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+4h   sw=2 ent=0.5 buf=5.0 hold=12 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=11/9 WR=55.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+1h   sw=3 ent=0.6 buf=5.0 hold=48 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=- | n= 17 W/L=8/9 WR=47.1% PF=1.59 DD= -2.9% PnL=$+289 Ret=+2.9% Eq=$10289
+4h   sw=3 ent=0.5 buf=4.0 hold=18 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 18 W/L=9/9 WR=50.0% PF=1.52 DD= -2.5% PnL=$+189 Ret=+1.9% Eq=$10189
+4h   sw=3 ent=0.5 buf=4.0 hold=18 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 18 W/L=9/9 WR=50.0% PF=1.52 DD= -2.5% PnL=$+189 Ret=+1.9% Eq=$10189
+4h   sw=2 ent=0.5 buf=5.0 hold=18 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 18 W/L=9/9 WR=50.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+4h   sw=2 ent=0.5 buf=5.0 hold=18 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n= 18 W/L=9/9 WR=50.0% PF=1.47 DD= -2.6% PnL=$+174 Ret=+1.7% Eq=$10174
+4h   sw=3 ent=0.5 buf=4.0 hold=18 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n= 17 W/L=8/9 WR=47.1% PF=1.49 DD= -2.5% PnL=$+176 Ret=+1.8% Eq=$10176
+
+OVERALL TOP 15
+--------------------------------------------------------------------------------------------------------------
+4h   sw=3 ent=0.6 buf=5.0 hold=24 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=1D | n=  4 W/L=3/1 WR=75.0% PF=10.14 DD= -0.7% PnL=$+643 Ret=+6.4% Eq=$10643
+4h   sw=3 ent=0.6 buf=5.0 hold=24 TP=5.0R flip=True minRng=0.0 minRR=0.0 htf=1D | n=  4 W/L=3/1 WR=75.0% PF=10.14 DD= -0.7% PnL=$+643 Ret=+6.4% Eq=$10643
+4h   sw=3 ent=0.6 buf=5.0 hold=24 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n=  4 W/L=3/1 WR=75.0% PF=10.02 DD= -0.7% PnL=$+630 Ret=+6.3% Eq=$10630
+4h   sw=3 ent=0.6 buf=5.0 hold=24 TP=anchor flip=True minRng=0.0 minRR=0.0 htf=1D | n=  4 W/L=3/1 WR=75.0% PF=10.02 DD= -0.7% PnL=$+630 Ret=+6.3% Eq=$10630
+1h   sw=2 ent=0.6 buf=5.0 hold=72 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=4h | n=  6 W/L=4/2 WR=66.7% PF=8.89 DD= -0.4% PnL=$+693 Ret=+6.9% Eq=$10693
+1h   sw=3 ent=0.6 buf=5.0 hold=72 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=4h | n=  6 W/L=4/2 WR=66.7% PF=8.59 DD= -0.5% PnL=$+689 Ret=+6.9% Eq=$10689
+1h   sw=3 ent=0.6 buf=3.0 hold=72 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=4h | n=  9 W/L=7/2 WR=77.8% PF=8.19 DD= -0.5% PnL=$+651 Ret=+6.5% Eq=$10651
+1h   sw=3 ent=0.6 buf=3.0 hold=72 TP=anchor flip=False minRng=20.0 minRR=2.0 htf=4h | n=  9 W/L=7/2 WR=77.8% PF=8.19 DD= -0.5% PnL=$+651 Ret=+6.5% Eq=$10651
+1h   sw=3 ent=0.6 buf=5.0 hold=72 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=4h | n=  9 W/L=7/2 WR=77.8% PF=8.09 DD= -0.5% PnL=$+638 Ret=+6.4% Eq=$10638
+1h   sw=3 ent=0.6 buf=3.0 hold=72 TP=5.0R flip=False minRng=0.0 minRR=0.0 htf=4h | n=  6 W/L=4/2 WR=66.7% PF=8.04 DD= -0.5% PnL=$+639 Ret=+6.4% Eq=$10639
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=4h | n=  9 W/L=7/2 WR=77.8% PF=7.64 DD= -0.4% PnL=$+563 Ret=+5.6% Eq=$10563
+1h   sw=3 ent=0.6 buf=3.0 hold=48 TP=anchor flip=False minRng=20.0 minRR=2.0 htf=4h | n=  9 W/L=7/2 WR=77.8% PF=7.64 DD= -0.4% PnL=$+563 Ret=+5.6% Eq=$10563
+1h   sw=2 ent=0.6 buf=3.0 hold=72 TP=anchor flip=False minRng=20.0 minRR=2.0 htf=4h | n=  5 W/L=3/2 WR=60.0% PF=8.18 DD= -0.4% PnL=$+627 Ret=+6.3% Eq=$10627
+1h   sw=2 ent=0.6 buf=3.0 hold=72 TP=anchor flip=False minRng=25.0 minRR=2.5 htf=4h | n=  5 W/L=3/2 WR=60.0% PF=8.18 DD= -0.4% PnL=$+627 Ret=+6.3% Eq=$10627
+1h   sw=2 ent=0.6 buf=3.0 hold=72 TP=anchor flip=True minRng=20.0 minRR=2.0 htf=4h | n=  5 W/L=3/2 WR=60.0% PF=8.18 DD= -0.4% PnL=$+627 Ret=+6.3% Eq=$10627
+
+RECOMMENDED
+--------------------------------------------------------------------------------------------------------------
+Best score:  4h   sw=3 ent=0.5 buf=5.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 20 W/L=12/8 WR=60.0% PF=2.06 DD= -1.7% PnL=$+296 Ret=+3.0% Eq=$10296
+Most trades: 4h   sw=3 ent=0.5 buf=4.0 hold=12 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=1D | n= 21 W/L=12/9 WR=57.1% PF=1.56 DD= -2.6% PnL=$+206 Ret=+2.1% Eq=$10206
+Baseline:    1h   sw=3 ent=0.6 buf=3.0 hold=72 TP=anchor flip=False minRng=0.0 minRR=0.0 htf=- | n= 15 W/L=9/6 WR=60.0% PF=2.48 DD= -2.1% PnL=$+514 Ret=+5.1% Eq=$10514 [BASELINE]
+Delta trades +6 | WR -2.9pp | DD -0.5pp | Ret -3.1pp

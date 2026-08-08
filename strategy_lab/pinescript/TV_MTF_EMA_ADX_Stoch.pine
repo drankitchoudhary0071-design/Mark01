@@ -1,0 +1,84 @@
+//@version=5
+// TV MTF: EMA + ADX + Stochastic
+// Port of strategy_lab tv_mtf_ema_adx_stoch (adx_min=25)
+//
+// ★ SETUP: BTCUSDT.P — timeframe **4 hours**
+// NOTE: WF OOS profitable (~+9%) but holdout was soft — use with caution.
+//
+strategy(
+     title                   = "TV MTF EMA+ADX+Stoch",
+     shorttitle              = "TV-EMA-ADX-Stoch",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 3
+ )
+
+grp = "Signal"
+emaFast = input.int(50, "Daily EMA fast", group=grp)
+emaSlow = input.int(200, "Daily EMA slow", group=grp)
+htfTf   = input.timeframe("D", "HTF", group=grp)
+adxLen  = input.int(14, "ADX period", group=grp)
+adxMin  = input.float(25, "Min Daily ADX", group=grp)
+stochK  = input.int(14, "%K", group=grp)
+stochSm = input.int(3, "%K smooth", group=grp)
+stochD  = input.int(3, "%D", group=grp)
+stochOs = input.int(20, "Long cross below", group=grp)
+stochOb = input.int(80, "Short cross above", group=grp)
+
+grpR = "Risk"
+atrLen  = input.int(14, "ATR", group=grpR)
+stopAtr = input.float(1.5, "Stop ATR", group=grpR)
+tpAtr   = input.float(3.0, "TP ATR", group=grpR)
+riskPct = input.float(1.0, "Risk %", group=grpR) / 100.0
+
+f_daily() =>
+    eF = ta.ema(close, emaFast)
+    eS = ta.ema(close, emaSlow)
+    trend = eF > eS ? 1 : eF < eS ? -1 : 0
+    [adxVal, _, _] = ta.dmi(adxLen, adxLen)
+    [eF, eS, trend, adxVal]
+
+[dEmaF, dEmaS, dTrend, dAdx] = request.security(syminfo.tickerid, htfTf, f_daily(), barmerge.gaps_off, barmerge.lookahead_off)
+
+k = ta.sma(ta.stoch(close, high, low, stochK), stochSm)
+d = ta.sma(k, stochD)
+atrVal = ta.atr(atrLen)
+
+longCond  = dTrend > 0 and dAdx >= adxMin and ta.crossover(k, d) and k < stochOs
+shortCond = dTrend < 0 and dAdx >= adxMin and ta.crossunder(k, d) and k > stochOb
+
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    dist = math.abs(entryPrice - stopPrice)
+    dist > 0 ? riskCash / dist : na
+
+flat = strategy.position_size == 0
+ok   = not na(atrVal) and atrVal > 0 and not na(dTrend) and not na(dAdx)
+
+if flat and ok and longCond
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("LX", from_entry="Long", stop=longStop, limit=longTp)
+
+if flat and ok and shortCond
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("SX", from_entry="Short", stop=shortStop, limit=shortTp)
+
+plot(dEmaF, "Daily EMA50", color=color.new(color.orange, 30))
+plot(dEmaS, "Daily EMA200", color=color.new(color.blue, 30))
+bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
