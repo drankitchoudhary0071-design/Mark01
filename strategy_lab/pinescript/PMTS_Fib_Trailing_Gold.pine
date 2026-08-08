@@ -1,9 +1,13 @@
 //@version=6
-// PMTS Fib Trailing — Gold (PAXG) friendly
-// Entry 0.6 fib touch | SL = 0.7 fib ± buffer pts | TP = swing anchor
-// Lab (PAXGUSDT 365d, full ~0.30% RT): best on 1H, buf≈3 pts (~+3.4% PF~1.65)
+// PMTS Fib Trailing — Gold (PAXG)
+// Entry fib touch | SL = 0.7 fib ± buffer pts | TP = swing anchor
+//
+// Lab PAXGUSDT $10k 365d costs~0.30% RT (recommended more-trades preset):
+//   Chart 4H | Entry 0.5 | SL buf 5 | HTF bias 1D EMA50 ON
+//   → ~21 trades | WR~57% | MaxDD~-2.6% | Ret~+2.0% | Equity~$10,198
+// Baseline (1H Entry 0.6 buf 3, no HTF): ~17 | WR~53% | DD~-3.1% | +3.4%
 
-strategy("PMTS - Fib Trailing (0.6 Entry / 0.7 SL + buffer)",
+strategy("PMTS - Fib Trailing (Gold)",
      overlay=true,
      default_qty_type=strategy.percent_of_equity,
      default_qty_value=10,
@@ -17,13 +21,20 @@ strategy("PMTS - Fib Trailing (0.6 Entry / 0.7 SL + buffer)",
      margin_short=100)
 
 swingLen   = input.int(3, "Swing Pivot Lookback", minval=1)
-entryLevel = input.float(0.6, "Entry Fib Level", step=0.001)
+entryLevel = input.float(0.5, "Entry Fib Level", step=0.001)
 slLevel    = input.float(0.7, "SL Fib Level", step=0.001)
-slBuffer   = input.float(3.0, "SL buffer points (below/above 0.7)", step=0.5, minval=0)
+slBuffer   = input.float(5.0, "SL buffer points (below/above 0.7)", step=0.5, minval=0)
+useHtfBias = input.bool(true, "Use HTF EMA bias filter")
+htfTf      = input.timeframe("1D", "HTF for bias")
+htfEmaLen  = input.int(50, "HTF EMA length", minval=5)
 showZones  = input.bool(true, "Show Fib Levels")
 
 phVal = ta.pivothigh(high, swingLen, swingLen)
 plVal = ta.pivotlow(low, swingLen, swingLen)
+
+htfClose = request.security(syminfo.tickerid, htfTf, close[1], barmerge.gaps_off, barmerge.lookahead_off)
+htfEma   = request.security(syminfo.tickerid, htfTf, ta.ema(close, htfEmaLen)[1], barmerge.gaps_off, barmerge.lookahead_off)
+int htfBias = na(htfClose) or na(htfEma) ? 0 : htfClose > htfEma ? 1 : -1
 
 var float lastSwingHigh = na
 var float lastSwingLow  = na
@@ -65,7 +76,8 @@ else if direction == "bull"
     entryPlot := entryPx
     slPlot    := slPx
     tpPlot    := tpPx
-    if strategy.position_size == 0 and low <= entryPx
+    bool biasOk = not useHtfBias or htfBias >= 0
+    if strategy.position_size == 0 and low <= entryPx and biasOk
         longSignal := true
     if close < slRaw
         float prevHigh = anchorHigh
@@ -83,7 +95,8 @@ else if direction == "bear"
     entryPlot := entryPx
     slPlot    := slPx
     tpPlot    := tpPx
-    if strategy.position_size == 0 and high >= entryPx
+    bool biasOk = not useHtfBias or htfBias <= 0
+    if strategy.position_size == 0 and high >= entryPx and biasOk
         shortSignal := true
     if close > slRaw
         float prevLow = anchorLow
@@ -108,7 +121,7 @@ if strategy.position_size > 0 and not na(lockedSL)
 if strategy.position_size < 0 and not na(lockedSL)
     strategy.exit("Short Exit", "Short", stop=lockedSL, limit=lockedTP)
 
-plot(showZones ? entryPlot : na, color=color.yellow, title="0.6 Entry", style=plot.style_linebr)
+plot(showZones ? entryPlot : na, color=color.yellow, title="Entry Fib", style=plot.style_linebr)
 plot(showZones ? slPlot : na, color=color.red, title="SL (0.7±buf)", style=plot.style_linebr)
 plot(showZones ? tpPlot : na, color=color.lime, title="TP Anchor", style=plot.style_linebr)
 plotshape(longSignal, location=location.belowbar, style=shape.triangleup, color=color.green, size=size.small)

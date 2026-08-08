@@ -1,7 +1,12 @@
 """
 PMTS Fib Trailing — port of TradingView Pine:
-  Entry at 0.6 fib touch, SL at 0.7 (+ optional point buffer), TP at swing anchor.
+  Entry at fib touch, SL at 0.7 (+ optional point buffer), TP at swing anchor (or R-multiple).
   Structure: BOS from swing pivots; close beyond 0.7 flips direction.
+
+Extras for lab sweeps (optional):
+  - min_range_pts / min_planned_rr quality filters
+  - soft exit when structure flips against the trade
+  - optional HTF bias filter (bull longs / bear shorts only)
 """
 
 from __future__ import annotations
@@ -21,7 +26,6 @@ def pivot_high(high: pd.Series, left: int, right: int) -> pd.Series:
     out = np.full(n, np.nan)
     h = high.to_numpy(dtype=float)
     for i in range(left + right, n):
-        # candidate pivot bar index
         c = i - right
         val = h[c]
         ok = True
@@ -55,6 +59,31 @@ def pivot_low(low: pd.Series, left: int, right: int) -> pd.Series:
     return pd.Series(out, index=low.index)
 
 
+def _htf_bias_series(df: pd.DataFrame, htf: str, ema_len: int = 50) -> np.ndarray:
+    """Map higher-TF EMA bias onto LTF bars. +1 bull, -1 bear, 0 unknown."""
+    from strategy_lab.strategies.mtf_rsi import resample_ohlcv
+
+    h = resample_ohlcv(df, htf)
+    if h.empty or len(h) < ema_len + 2:
+        return np.zeros(len(df), dtype=int)
+    ema = h["close"].astype(float).ewm(span=ema_len, adjust=False).mean()
+    bias_htf = np.where(h["close"].to_numpy(dtype=float) > ema.to_numpy(dtype=float), 1, -1)
+    # Last closed HTF bar only (no lookahead): shift by 1 HTF bar
+    h_ts = pd.to_datetime(h["timestamp"], utc=True)
+    bias_df = pd.DataFrame({"timestamp": h_ts, "bias": bias_htf}).copy()
+    bias_df["bias"] = bias_df["bias"].shift(1)
+    bias_df = bias_df.dropna()
+    l_ts = pd.to_datetime(df["timestamp"], utc=True)
+    left = pd.DataFrame({"timestamp": l_ts})
+    merged = pd.merge_asof(
+        left.sort_values("timestamp"),
+        bias_df.sort_values("timestamp"),
+        on="timestamp",
+        direction="backward",
+    )
+    return merged["bias"].fillna(0).astype(int).to_numpy()
+
+
 class PmtsFibTrailingStrategy(Strategy):
     """Fib trailing structure strategy (PMTS Pine port)."""
 
@@ -73,6 +102,13 @@ class PmtsFibTrailingStrategy(Strategy):
             "tp_mode": "anchor",
             "rr_multiple": 3.0,
             "max_hold_bars": 500,
+            # Quality / frequency levers
+            "min_range_pts": 0.0,  # skip tiny fib ranges (gold $)
+            "min_planned_rr": 0.0,  # skip if TP/SL distance ratio too small
+            "flip_soft_exit": False,  # exit at close when structure flips
+            "htf_bias": "",  # e.g. "4h" — only long in HTF bull / short in HTF bear
+            "htf_ema": 50,
+            "reentry_cooldown": 0,  # bars after exit before next entry
         }
 
     def __init__(self, **params: Any):
@@ -85,7 +121,7 @@ class PmtsFibTrailingStrategy(Strategy):
             else f"TP = {rr}× SL distance (R-multiple)"
         )
         self.curve_fit_flags = list(self.curve_fit_flags) + [
-            f"[PMTS] Entry 0.6 fib touch; SL 0.7 ± buffer pts; {tp_desc}.",
+            f"[PMTS] Entry fib touch; SL 0.7 ± buffer pts; {tp_desc}.",
             "[PMTS] Close beyond 0.7 flips structure (wick alone does not).",
         ]
 
@@ -98,6 +134,12 @@ class PmtsFibTrailingStrategy(Strategy):
         hold = int(p["max_hold_bars"])
         tp_mode = str(p.get("tp_mode", "anchor"))
         rr_mult = float(p.get("rr_multiple", 3.0))
+        min_range = float(p.get("min_range_pts", 0.0))
+        min_rr = float(p.get("min_planned_rr", 0.0))
+        flip_exit = bool(p.get("flip_soft_exit", False))
+        htf = str(p.get("htf_bias", "") or "").strip()
+        htf_ema = int(p.get("htf_ema", 50))
+        cooldown = int(p.get("reentry_cooldown", 0))
 
         def resolve_tp(side: str, entry: float, stop: float, anchor_tp: float) -> float:
             if tp_mode == "anchor":
@@ -115,6 +157,8 @@ class PmtsFibTrailingStrategy(Strategy):
         ph = pivot_high(high, swing, swing)
         pl = pivot_low(low, swing, swing)
 
+        bias = _htf_bias_series(df, htf, htf_ema) if htf else np.zeros(len(df), dtype=int)
+
         last_sh: Optional[float] = None
         last_sl: Optional[float] = None
         direction: Optional[str] = None  # bull / bear
@@ -122,12 +166,13 @@ class PmtsFibTrailingStrategy(Strategy):
         anchor_high: Optional[float] = None
 
         # Simulate one position at a time like Pine (flat check on entry).
-        # Engine also enforces one-trade-at-a-time; we still avoid overlapping signals.
         in_pos = False
         pos_side: Optional[str] = None
         pos_stop = 0.0
         pos_tp = 0.0
         pos_entry_i = -1
+        last_exit_i = -10_000
+        active_sig: Optional[Signal] = None
 
         signals: list[Signal] = []
 
@@ -140,10 +185,12 @@ class PmtsFibTrailingStrategy(Strategy):
             hi = float(high.iloc[i])
             lo = float(low.iloc[i])
             cl = float(close.iloc[i])
+            tsi = pd.Timestamp(ts.iloc[i])
 
-            # Manage open "virtual" position for signal spacing (stop/tp/time)
+            # Manage open "virtual" position for signal spacing (stop/tp/time/flip)
             if in_pos:
                 exited = False
+                exit_px = None
                 if pos_side == "long":
                     if lo <= pos_stop or hi >= pos_tp:
                         exited = True
@@ -155,6 +202,8 @@ class PmtsFibTrailingStrategy(Strategy):
                 if exited:
                     in_pos = False
                     pos_side = None
+                    active_sig = None
+                    last_exit_i = i
 
             long_signal = False
             short_signal = False
@@ -179,14 +228,28 @@ class PmtsFibTrailingStrategy(Strategy):
                 if rng > 0:
                     entry_px = anchor_high - rng * entry_lvl
                     sl_raw = anchor_high - rng * sl_lvl
-                    sl_px = sl_raw - buf  # 2–5 pts below 0.7 for gold long
+                    sl_px = sl_raw - buf
                     tp_px = resolve_tp("long", entry_px, sl_px, anchor_high)
 
-                    if (not in_pos) and lo <= entry_px:
+                    bias_ok = bias[i] >= 0 if htf else True
+                    range_ok = rng >= min_range
+                    risk = abs(entry_px - sl_px)
+                    planned = (abs(tp_px - entry_px) / risk) if risk > 0 else 0.0
+                    rr_ok = planned >= min_rr
+                    cd_ok = (i - last_exit_i) >= cooldown
+
+                    if (not in_pos) and lo <= entry_px and bias_ok and range_ok and rr_ok and cd_ok:
                         long_signal = True
 
-                    # close-confirmed reversal past 0.7 (use raw 0.7, not buffered SL)
                     if cl < sl_raw:
+                        # structure flip
+                        if flip_exit and in_pos and pos_side == "long" and active_sig is not None:
+                            soft = active_sig.meta.setdefault("soft_exits", {})
+                            soft[tsi] = cl
+                            in_pos = False
+                            pos_side = None
+                            active_sig = None
+                            last_exit_i = i
                         prev_high = anchor_high
                         direction = "bear"
                         anchor_high = prev_high
@@ -200,65 +263,80 @@ class PmtsFibTrailingStrategy(Strategy):
                 if rng > 0:
                     entry_px = anchor_low + rng * entry_lvl
                     sl_raw = anchor_low + rng * sl_lvl
-                    sl_px = sl_raw + buf  # 2–5 pts above 0.7 for gold short
+                    sl_px = sl_raw + buf
                     tp_px = resolve_tp("short", entry_px, sl_px, anchor_low)
 
-                    if (not in_pos) and hi >= entry_px:
+                    bias_ok = bias[i] <= 0 if htf else True
+                    range_ok = rng >= min_range
+                    risk = abs(entry_px - sl_px)
+                    planned = (abs(tp_px - entry_px) / risk) if risk > 0 else 0.0
+                    rr_ok = planned >= min_rr
+                    cd_ok = (i - last_exit_i) >= cooldown
+
+                    if (not in_pos) and hi >= entry_px and bias_ok and range_ok and rr_ok and cd_ok:
                         short_signal = True
 
                     if cl > sl_raw:
+                        if flip_exit and in_pos and pos_side == "short" and active_sig is not None:
+                            soft = active_sig.meta.setdefault("soft_exits", {})
+                            soft[tsi] = cl
+                            in_pos = False
+                            pos_side = None
+                            active_sig = None
+                            last_exit_i = i
                         prev_low = anchor_low
                         direction = "bull"
                         anchor_low = prev_low
                         anchor_high = hi
 
             if long_signal and entry_px is not None and sl_px is not None and tp_px is not None:
-                # Sanity: long SL below entry, TP above
                 if sl_px < entry_px < tp_px:
-                    signals.append(
-                        Signal(
-                            timestamp=pd.Timestamp(ts.iloc[i]),
-                            direction="long",
-                            entry=float(entry_px),  # fill at 0.6 fib (wick touch)
-                            stop=float(sl_px),
-                            take_profit=float(tp_px),
-                            pattern="pmts_fib_long",
-                            max_hold_bars=hold,
-                            meta={
-                                "fib_entry": float(entry_px),
-                                "anchor_low": float(anchor_low) if anchor_low else None,
-                                "anchor_high": float(anchor_high) if anchor_high else None,
-                            },
-                        )
+                    sig = Signal(
+                        timestamp=tsi,
+                        direction="long",
+                        entry=float(entry_px),
+                        stop=float(sl_px),
+                        take_profit=float(tp_px),
+                        pattern="pmts_fib_long",
+                        max_hold_bars=hold,
+                        meta={
+                            "fib_entry": float(entry_px),
+                            "anchor_low": float(anchor_low) if anchor_low else None,
+                            "anchor_high": float(anchor_high) if anchor_high else None,
+                            "soft_exits": {},
+                        },
                     )
+                    signals.append(sig)
                     in_pos = True
                     pos_side = "long"
                     pos_stop = float(sl_px)
                     pos_tp = float(tp_px)
                     pos_entry_i = i
+                    active_sig = sig
 
             if short_signal and entry_px is not None and sl_px is not None and tp_px is not None:
                 if tp_px < entry_px < sl_px:
-                    signals.append(
-                        Signal(
-                            timestamp=pd.Timestamp(ts.iloc[i]),
-                            direction="short",
-                            entry=float(entry_px),  # fill at 0.6 fib (wick touch)
-                            stop=float(sl_px),
-                            take_profit=float(tp_px),
-                            pattern="pmts_fib_short",
-                            max_hold_bars=hold,
-                            meta={
-                                "fib_entry": float(entry_px),
-                                "anchor_low": float(anchor_low) if anchor_low else None,
-                                "anchor_high": float(anchor_high) if anchor_high else None,
-                            },
-                        )
+                    sig = Signal(
+                        timestamp=tsi,
+                        direction="short",
+                        entry=float(entry_px),
+                        stop=float(sl_px),
+                        take_profit=float(tp_px),
+                        pattern="pmts_fib_short",
+                        max_hold_bars=hold,
+                        meta={
+                            "fib_entry": float(entry_px),
+                            "anchor_low": float(anchor_low) if anchor_low else None,
+                            "anchor_high": float(anchor_high) if anchor_high else None,
+                            "soft_exits": {},
+                        },
                     )
+                    signals.append(sig)
                     in_pos = True
                     pos_side = "short"
                     pos_stop = float(sl_px)
                     pos_tp = float(tp_px)
                     pos_entry_i = i
+                    active_sig = sig
 
         return signals
