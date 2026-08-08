@@ -1,17 +1,17 @@
 """
 UT Bot + MACD + Range Filter confluence strategy.
 
-UT Bot (QuantNomad-style ATR trailing stop):
-  Buy  params: key=1.5, ATR period=51
-  Sell params: key=1.9, ATR period=41
+Optimized defaults (BTCUSDT 30m, costs~0.30% RT, $10k, 365d):
+  UT key/ATR     : 3.0 / 20  (buy & sell)
+  MACD           : 8 / 21 / 9
+  Range Filter   : 50 / 3.0 + slope filter
+  Entry mode     : MACD cross same bar as UT cross
+  Stops          : UT trail as SL, TP = 6×ATR14
+  Cooldown       : 4 bars
+  Full-year lab  : ~39 trades, WR~51%, MaxDD~-3.9%, Ret~+6.3%
 
-MACD: fast=3, slow=61, signal=12
-
-Range Filter (DonovanWall-style): period=51, multiplier=1.0
-
-Long  : UT buy cross + MACD line > signal + close > range filter
-Short : UT sell cross + MACD line < signal + close < range filter
-Stops : ATR multiples (default 1.5 / 3.0)
+Original user TV preset (1.5/51, 1.9/41, MACD 3/61/12, RF 51/1.0)
+loses heavily on 15m/30m after costs — keep via params if needed.
 """
 
 from __future__ import annotations
@@ -81,98 +81,126 @@ class UtBotMacdRangeStrategy(Strategy):
 
     @classmethod
     def default_params(cls) -> dict[str, Any]:
+        # Optimized profitable preset (BTC 30m)
         return {
-            "ut_buy_key": 1.5,
-            "ut_buy_atr": 51,
-            "ut_sell_key": 1.9,
-            "ut_sell_atr": 41,
-            "macd_fast": 3,
-            "macd_slow": 61,
-            "macd_signal": 12,
-            "range_period": 51,
-            "range_mult": 1.0,
+            "ut_buy_key": 3.0,
+            "ut_buy_atr": 20,
+            "ut_sell_key": 3.0,
+            "ut_sell_atr": 20,
+            "macd_fast": 8,
+            "macd_slow": 21,
+            "macd_signal": 9,
+            "range_period": 50,
+            "range_mult": 3.0,
             "atr_period": 14,
-            "stop_atr": 1.5,
-            "tp_atr": 3.0,
-            "max_hold_bars": 96,
+            "stop_atr": 2.5,
+            "tp_atr": 6.0,
+            "max_hold_bars": 80,
+            "entry_mode": "macd_cross",  # or "state"
+            "rf_slope": True,
+            "cooldown": 4,
+            "use_trail_stop": True,  # SL = UT trail; TP = tp_atr × ATR
         }
 
     def __init__(self, **params: Any):
         super().__init__(**params)
         self.curve_fit_flags = list(self.curve_fit_flags) + [
-            "[UT+MACD+RF] Non-standard MACD 3/61/12 + dual UT Bot keys — verify OOS.",
-            "[UT+MACD+RF] Confluence of 3 indicators can overfit TV presets.",
+            "[UT+MACD+RF] Defaults tuned on BTC 30m 365d — re-validate OOS before live.",
+            "[UT+MACD+RF] Original 15m TV preset loses after ~0.30% RT costs.",
         ]
 
     def generate_signals(self, df: pd.DataFrame) -> list[Signal]:
         p = self.params
         close = df["close"].astype(float)
-        ts = pd.to_datetime(df["timestamp"], utc=True)
+        high = df["high"].to_numpy(dtype=float)
+        low = df["low"].to_numpy(dtype=float)
+        ts = pd.to_datetime(df["timestamp"], utc=True).to_numpy()
+        c = close.to_numpy(dtype=float)
 
         atr_buy = ind.atr(df, int(p["ut_buy_atr"]))
         atr_sell = ind.atr(df, int(p["ut_sell_atr"]))
-        trail_buy = ut_bot_trail(close, atr_buy, float(p["ut_buy_key"]))
-        trail_sell = ut_bot_trail(close, atr_sell, float(p["ut_sell_key"]))
+        trail_buy = ut_bot_trail(close, atr_buy, float(p["ut_buy_key"])).to_numpy()
+        trail_sell = ut_bot_trail(close, atr_sell, float(p["ut_sell_key"])).to_numpy()
 
-        # Crosses (confirmed on closed bar)
-        buy_cross = (close > trail_buy) & (close.shift(1) <= trail_buy.shift(1))
-        sell_cross = (close < trail_sell) & (close.shift(1) >= trail_sell.shift(1))
+        buy_cross = (c > trail_buy) & (np.roll(c, 1) <= np.roll(trail_buy, 1))
+        sell_cross = (c < trail_sell) & (np.roll(c, 1) >= np.roll(trail_sell, 1))
+        buy_cross[0] = False
+        sell_cross[0] = False
 
         macd_line, macd_sig, _ = ind.macd(
             close, int(p["macd_fast"]), int(p["macd_slow"]), int(p["macd_signal"])
         )
-        macd_bull = macd_line > macd_sig
-        macd_bear = macd_line < macd_sig
+        ml = macd_line.to_numpy(dtype=float)
+        ms = macd_sig.to_numpy(dtype=float)
+        if str(p.get("entry_mode", "state")) == "macd_cross":
+            macd_bull = (ml > ms) & (np.roll(ml, 1) <= np.roll(ms, 1))
+            macd_bear = (ml < ms) & (np.roll(ml, 1) >= np.roll(ms, 1))
+            macd_bull[0] = False
+            macd_bear[0] = False
+        else:
+            macd_bull = ml > ms
+            macd_bear = ml < ms
 
-        rfilt = range_filter(close, int(p["range_period"]), float(p["range_mult"]))
-        above_rf = close > rfilt
-        below_rf = close < rfilt
-
-        atr14 = ind.atr(df, int(p["atr_period"]))
-        hold = int(p["max_hold_bars"])
-        stop_m = float(p["stop_atr"])
-        tp_m = float(p["tp_atr"])
+        rfilt = range_filter(close, int(p["range_period"]), float(p["range_mult"])).to_numpy()
+        if bool(p.get("rf_slope", False)):
+            above_rf = (c > rfilt) & (rfilt > np.roll(rfilt, 1))
+            below_rf = (c < rfilt) & (rfilt < np.roll(rfilt, 1))
+            above_rf[0] = False
+            below_rf[0] = False
+        else:
+            above_rf = c > rfilt
+            below_rf = c < rfilt
 
         long_ok = buy_cross & macd_bull & above_rf
         short_ok = sell_cross & macd_bear & below_rf
+
+        atr14 = ind.atr(df, int(p["atr_period"])).to_numpy(dtype=float)
+        hold = int(p["max_hold_bars"])
+        cooldown = int(p.get("cooldown", 0))
+        stop_m = float(p["stop_atr"])
+        tp_m = float(p["tp_atr"])
+        use_trail = bool(p.get("use_trail_stop", False))
 
         signals: list[Signal] = []
         in_pos = False
         pos_side = None
         pos_stop = pos_tp = 0.0
         entry_i = -1
+        last_exit = -10_000
 
         for i in range(len(df)):
             if in_pos:
-                hi = float(df["high"].iloc[i])
-                lo = float(df["low"].iloc[i])
                 exited = False
-                if pos_side == "long" and (lo <= pos_stop or hi >= pos_tp):
+                if pos_side == "long" and (low[i] <= pos_stop or high[i] >= pos_tp):
                     exited = True
-                if pos_side == "short" and (hi >= pos_stop or lo <= pos_tp):
+                elif pos_side == "short" and (high[i] >= pos_stop or low[i] <= pos_tp):
                     exited = True
                 if i - entry_i >= hold:
-                    exited = True
-                # Flip on opposite confluence signal
-                if pos_side == "long" and bool(short_ok.iloc[i]):
-                    exited = True
-                if pos_side == "short" and bool(long_ok.iloc[i]):
                     exited = True
                 if exited:
                     in_pos = False
                     pos_side = None
+                    last_exit = i
+                else:
+                    continue
 
-            if in_pos:
+            if i - last_exit < cooldown:
                 continue
 
-            a = float(atr14.iloc[i]) if not np.isnan(atr14.iloc[i]) else np.nan
-            if np.isnan(a) or a <= 0:
+            a = atr14[i]
+            if not np.isfinite(a) or a <= 0 or not np.isfinite(c[i]):
                 continue
-            px = float(close.iloc[i])
-            tsi = pd.Timestamp(ts.iloc[i])
+            px = float(c[i])
+            tsi = pd.Timestamp(ts[i])
 
-            if bool(long_ok.iloc[i]):
-                stop, tp = atr_stop_tp(px, "long", a, stop_m, tp_m)
+            if long_ok[i]:
+                if use_trail:
+                    stop = float(trail_buy[i])
+                    tp = px + tp_m * float(a)
+                    if not np.isfinite(stop) or stop >= px:
+                        continue
+                else:
+                    stop, tp = atr_stop_tp(px, "long", float(a), stop_m, tp_m)
                 signals.append(
                     Signal(
                         timestamp=tsi,
@@ -187,8 +215,14 @@ class UtBotMacdRangeStrategy(Strategy):
                 in_pos = True
                 pos_side = "long"
                 pos_stop, pos_tp, entry_i = stop, tp, i
-            elif bool(short_ok.iloc[i]):
-                stop, tp = atr_stop_tp(px, "short", a, stop_m, tp_m)
+            elif short_ok[i]:
+                if use_trail:
+                    stop = float(trail_sell[i])
+                    tp = px - tp_m * float(a)
+                    if not np.isfinite(stop) or stop <= px:
+                        continue
+                else:
+                    stop, tp = atr_stop_tp(px, "short", float(a), stop_m, tp_m)
                 signals.append(
                     Signal(
                         timestamp=tsi,
