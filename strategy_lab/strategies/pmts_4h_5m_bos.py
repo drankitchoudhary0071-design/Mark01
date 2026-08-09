@@ -1,9 +1,11 @@
 """
-PMTS — 4H Fib Golden Zone + 5min BOS Confirmation
+PMTS — 4H Fib Golden Zone + 5min BOS Confirmation (v2)
 
-Port of TradingView strategy:
-  HTF 4H: structure + trailing fib anchors; flip only on close beyond 0.7
-  Zone 0.5–0.7; SL = 0.7 side; TP = HTF anchor extreme
+Matches updated TradingView logic:
+  HTF 4H: fib ALWAYS from latest confirmed swing high + low (no trailing)
+  Pivot filters: swingLen=15 + minMovePct (default 1.5%)
+  Direction: close beyond latest opposite pivot (BOS), not 0.7 flip
+  Zone 0.5–0.7; SL=0.7 side; TP=anchor extreme
   LTF 5m: arm on zone tap; enter on LTF BOS in HTF direction
 """
 
@@ -22,10 +24,10 @@ from strategy_lab.strategies.pmts_fib_trailing import pivot_high, pivot_low
 
 def run_htf_pmts(
     htf: pd.DataFrame,
-    swing_len: int = 3,
-    zone_lower: float = 0.7,
+    swing_len: int = 15,
+    min_move_pct: float = 1.5,
 ) -> pd.DataFrame:
-    """PMTS structure state machine on HTF bars (matches f_pmts in Pine)."""
+    """HTF structure: latest major swing pair + BOS direction (Pine f_pmts v2)."""
     high = htf["high"].astype(float).to_numpy()
     low = htf["low"].astype(float).to_numpy()
     close = htf["close"].astype(float).to_numpy()
@@ -41,49 +43,29 @@ def run_htf_pmts(
     last_sh: Optional[float] = None
     last_sl: Optional[float] = None
     dir_s: Optional[str] = None
-    a_hi: Optional[float] = None
-    a_lo: Optional[float] = None
 
     for i in range(n):
         if not np.isnan(ph[i]):
-            last_sh = float(ph[i])
+            pv = float(ph[i])
+            if last_sh is None or abs(pv - last_sh) / last_sh * 100.0 >= min_move_pct:
+                last_sh = pv
         if not np.isnan(pl[i]):
-            last_sl = float(pl[i])
+            pv = float(pl[i])
+            if last_sl is None or abs(pv - last_sl) / last_sl * 100.0 >= min_move_pct:
+                last_sl = pv
 
-        if dir_s is None:
-            if last_sh is not None and last_sl is not None:
-                if close[i] > last_sh:
-                    dir_s = "bull"
-                    a_lo = last_sl
-                    a_hi = float(high[i])
-                elif close[i] < last_sl:
-                    dir_s = "bear"
-                    a_hi = last_sh
-                    a_lo = float(low[i])
-        elif dir_s == "bull":
-            assert a_hi is not None and a_lo is not None
-            if high[i] > a_hi:
-                a_hi = float(high[i])
-            if close[i] < a_hi - (a_hi - a_lo) * zone_lower:
-                prev_high = a_hi
-                dir_s = "bear"
-                a_hi = prev_high
-                a_lo = float(low[i])
-        elif dir_s == "bear":
-            assert a_hi is not None and a_lo is not None
-            if low[i] < a_lo:
-                a_lo = float(low[i])
-            if close[i] > a_lo + (a_hi - a_lo) * zone_lower:
-                prev_low = a_lo
-                dir_s = "bull"
-                a_lo = prev_low
-                a_hi = float(high[i])
+        # BOS on close beyond latest opposite pivot (order matches Pine:
+        # bear check first, then bull — bull wins if both true same bar)
+        if last_sl is not None and close[i] < last_sl:
+            dir_s = "bear"
+        if last_sh is not None and close[i] > last_sh:
+            dir_s = "bull"
 
         direction[i] = dir_s
-        if a_hi is not None:
-            anchor_high[i] = a_hi
-        if a_lo is not None:
-            anchor_low[i] = a_lo
+        if last_sh is not None:
+            anchor_high[i] = last_sh
+        if last_sl is not None:
+            anchor_low[i] = last_sl
 
     out = htf[["timestamp"]].copy()
     out["htf_dir"] = direction
@@ -96,7 +78,6 @@ def map_htf_to_ltf(ltf: pd.DataFrame, htf_state: pd.DataFrame) -> pd.DataFrame:
     """As-of merge of last *closed* HTF bar (lookahead_off)."""
     h = htf_state.copy()
     h["timestamp"] = pd.to_datetime(h["timestamp"], utc=True)
-    # Shift so current forming HTF bar is not visible on LTF
     for col in ("htf_dir", "htf_anchor_high", "htf_anchor_low"):
         h[col] = h[col].shift(1)
 
@@ -111,16 +92,17 @@ def map_htf_to_ltf(ltf: pd.DataFrame, htf_state: pd.DataFrame) -> pd.DataFrame:
 
 
 class Pmts4h5mBosStrategy(Strategy):
-    """4H fib golden zone + 5m BOS confirmation."""
+    """4H fib golden zone + 5m BOS confirmation (major-swing v2)."""
 
     name = "pmts_4h_5m_bos"
-    library = "pandas PMTS 4H zone + 5m BOS"
+    library = "pandas PMTS 4H zone + 5m BOS v2"
 
     @classmethod
     def default_params(cls) -> dict[str, Any]:
         return {
             "htf": "4h",
-            "htf_swing_len": 3,
+            "htf_swing_len": 15,
+            "min_move_pct": 1.5,
             "zone_upper": 0.5,
             "zone_lower": 0.7,
             "ltf_swing_len": 3,
@@ -130,18 +112,18 @@ class Pmts4h5mBosStrategy(Strategy):
     def __init__(self, **params: Any):
         super().__init__(**params)
         self.curve_fit_flags = list(self.curve_fit_flags) + [
-            "[PMTS 4H+5m] Entry needs zone arm + LTF BOS; HTF flip only on 4H close beyond 0.7.",
+            "[PMTS 4H+5m v2] Fib from latest major swing pair (len=15, minMove%).",
+            "[PMTS 4H+5m v2] HTF dir = close beyond latest pivot (not 0.7 trail flip).",
         ]
 
     def generate_signals(self, df: pd.DataFrame) -> list[Signal]:
         """``df`` must be LTF (5m) OHLCV."""
         p = self.params
-        htf_rule = str(p.get("htf", "4h"))
-        htf = resample_ohlcv(df, htf_rule)
+        htf = resample_ohlcv(df, str(p.get("htf", "4h")))
         htf_state = run_htf_pmts(
             htf,
             swing_len=int(p["htf_swing_len"]),
-            zone_lower=float(p["zone_lower"]),
+            min_move_pct=float(p["min_move_pct"]),
         )
         mapped = map_htf_to_ltf(df, htf_state)
 
@@ -160,7 +142,6 @@ class Pmts4h5mBosStrategy(Strategy):
         swing = int(p["ltf_swing_len"])
         hold = int(p["max_hold_bars"])
 
-        # LTF pivots + BOS
         ph = pivot_high(df["high"].astype(float), swing, swing).to_numpy()
         pl = pivot_low(df["low"].astype(float), swing, swing).to_numpy()
         ltf_sh = np.full(n, np.nan)
@@ -178,14 +159,11 @@ class Pmts4h5mBosStrategy(Strategy):
         bull_bos = np.zeros(n, dtype=bool)
         bear_bos = np.zeros(n, dtype=bool)
         for i in range(1, n):
-            # ta.crossover(close, ltfSwingHigh)
             if np.isfinite(ltf_sh[i]) and close[i - 1] <= ltf_sh[i] and close[i] > ltf_sh[i]:
                 bull_bos[i] = True
-            # ta.crossunder(close, ltfSwingLow)
             if np.isfinite(ltf_sl[i]) and close[i - 1] >= ltf_sl[i] and close[i] < ltf_sl[i]:
                 bear_bos[i] = True
 
-        # Zone / SL / TP from HTF
         zone_top = np.full(n, np.nan)
         zone_bot = np.full(n, np.nan)
         sl_px = np.full(n, np.nan)
@@ -237,7 +215,6 @@ class Pmts4h5mBosStrategy(Strategy):
                 armed = False
                 armed_dir = d_str
 
-            # Pine: low <= zoneTop and high >= zoneBottom
             in_zone = (
                 np.isfinite(zone_top[i])
                 and np.isfinite(zone_bot[i])
@@ -269,6 +246,8 @@ class Pmts4h5mBosStrategy(Strategy):
                             "htf_dir": d_str,
                             "zone_top": float(zone_top[i]),
                             "zone_bot": float(zone_bot[i]),
+                            "anchor_high": float(a_hi[i]),
+                            "anchor_low": float(a_lo[i]),
                         },
                     )
                 )
@@ -290,6 +269,8 @@ class Pmts4h5mBosStrategy(Strategy):
                             "htf_dir": d_str,
                             "zone_top": float(zone_top[i]),
                             "zone_bot": float(zone_bot[i]),
+                            "anchor_high": float(a_hi[i]),
+                            "anchor_low": float(a_lo[i]),
                         },
                     )
                 )

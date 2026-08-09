@@ -1,5 +1,5 @@
 //@version=6
-// PMTS — 4H Fib Golden Zone + 5min BOS Confirmation
+// PMTS — 4H Fib Zone + 5min BOS (major swings: len=15, minMove%)
 // Lab: strategy_lab/strategies/pmts_4h_5m_bos.py
 strategy("PMTS - 4H Fib Zone + 5min BOS Confirmation",
      overlay=true,
@@ -15,55 +15,31 @@ strategy("PMTS - 4H Fib Zone + 5min BOS Confirmation",
      margin_short=100)
 
 htfTF        = input.timeframe("240", "HTF for Structure + Fib (4H)")
-htfSwingLen  = input.int(3, "HTF Swing Pivot Lookback (bars each side)", minval=1)
+htfSwingLen  = input.int(15, "HTF Swing Pivot Lookback (bars each side)", minval=1)
+minMovePct   = input.float(1.5, "Minimum Swing Move % to Count as New Pivot", minval=0.1, step=0.1)
 zoneUpper    = input.float(0.5, "Golden Zone Upper Bound (fib)", step=0.001)
 zoneLower    = input.float(0.7, "Golden Zone Lower Bound / Reversal Level (fib)", step=0.001)
 ltfSwingLen  = input.int(3, "LTF (5min) Swing Pivot Lookback for BOS", minval=1)
 showZones    = input.bool(true, "Show Fib Zone on Chart")
 
 f_pmts() =>
-    var string direction  = na
-    var float  anchorLow  = na
-    var float  anchorHigh = na
-
     phVal = ta.pivothigh(high, htfSwingLen, htfSwingLen)
     plVal = ta.pivotlow(low, htfSwingLen, htfSwingLen)
 
     var float lastSwingHigh = na
     var float lastSwingLow  = na
-    if not na(phVal)
+    if not na(phVal) and (na(lastSwingHigh) or math.abs(phVal - lastSwingHigh) / lastSwingHigh * 100 >= minMovePct)
         lastSwingHigh := phVal
-    if not na(plVal)
+    if not na(plVal) and (na(lastSwingLow) or math.abs(plVal - lastSwingLow) / lastSwingLow * 100 >= minMovePct)
         lastSwingLow := plVal
 
-    if na(direction)
-        if not na(lastSwingHigh) and not na(lastSwingLow)
-            if close > lastSwingHigh
-                direction  := "bull"
-                anchorLow  := lastSwingLow
-                anchorHigh := high
-            else if close < lastSwingLow
-                direction  := "bear"
-                anchorHigh := lastSwingHigh
-                anchorLow  := low
-    else if direction == "bull"
-        if high > anchorHigh
-            anchorHigh := high
-        if close < anchorHigh - (anchorHigh - anchorLow) * zoneLower
-            prevHigh   = anchorHigh
-            direction  := "bear"
-            anchorHigh := prevHigh
-            anchorLow  := low
-    else if direction == "bear"
-        if low < anchorLow
-            anchorLow := low
-        if close > anchorLow + (anchorHigh - anchorLow) * zoneLower
-            prevLow    = anchorLow
-            direction  := "bull"
-            anchorLow  := prevLow
-            anchorHigh := high
+    var string direction = na
+    if not na(lastSwingLow) and close < lastSwingLow
+        direction := "bear"
+    if not na(lastSwingHigh) and close > lastSwingHigh
+        direction := "bull"
 
-    [direction, anchorHigh, anchorLow]
+    [direction, lastSwingHigh, lastSwingLow]
 
 [htfDir, htfAnchorHigh, htfAnchorLow] = request.security(syminfo.tickerid, htfTF, f_pmts(), lookahead=barmerge.lookahead_off)
 
@@ -146,12 +122,13 @@ plot(showZones ? zoneBottom : na, color=color.red, title="Zone 0.7 / SL", style=
 plot(showZones ? tpPx : na, color=color.lime, title="TP (Anchor Extreme)", style=plot.style_linebr)
 plotshape(longSignal, location=location.belowbar, style=shape.triangleup, color=color.green, size=size.small)
 plotshape(shortSignal, location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+plotshape(inZoneNow, title="Zone Tap", location=location.abovebar, style=shape.circle, color=color.orange, size=size.tiny)
 
 if barstate.islast
     var table t = table.new(position.top_right, 2, 6, border_width=1)
     float wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0
     float pf = strategy.grossloss != 0 ? strategy.grossprofit / math.abs(strategy.grossloss) : na
-    table.cell(t, 0, 0, "PMTS 4H+5m", bgcolor=color.blue, text_color=color.white)
+    table.cell(t, 0, 0, "PMTS 4H+5m v2", bgcolor=color.blue, text_color=color.white)
     table.cell(t, 1, 0, timeframe.period, bgcolor=color.blue, text_color=color.white)
     table.cell(t, 0, 1, "Trades")
     table.cell(t, 1, 1, str.tostring(strategy.closedtrades))
@@ -161,5 +138,5 @@ if barstate.islast
     table.cell(t, 1, 3, str.tostring(strategy.netprofit, "#.##"))
     table.cell(t, 0, 4, "Profit Factor")
     table.cell(t, 1, 4, na(pf) ? "n/a" : str.tostring(pf, "#.##"))
-    table.cell(t, 0, 5, "Armed")
-    table.cell(t, 1, 5, str.tostring(armed))
+    table.cell(t, 0, 5, "Swing/MinMove")
+    table.cell(t, 1, 5, str.tostring(htfSwingLen) + " / " + str.tostring(minMovePct) + "%")
