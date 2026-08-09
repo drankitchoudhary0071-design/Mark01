@@ -296,10 +296,17 @@ def resistance_touch_valid(
     return pierced and near
 
 
-def run_backtest(symbol: str, tf: str) -> dict:
+def run_backtest(
+    symbol: str,
+    tf: str,
+    *,
+    partial_pips: float = PARTIAL_PIPS,
+    df: pd.DataFrame | None = None,
+) -> dict:
     pip = PIP_SIZE.get(symbol, 0.10)
     lb = lookback_bars(tf)
-    df = load_or_fetch(symbol, tf, DAYS)
+    if df is None:
+        df = load_or_fetch(symbol, tf, DAYS)
     o = df["open"].to_numpy(float)
     h = df["high"].to_numpy(float)
     l = df["low"].to_numpy(float)
@@ -358,9 +365,9 @@ def run_backtest(symbol: str, tf: str) -> dict:
             partial_done = pos["partial_done"]
 
             if direction == "long":
-                target_partial = entry + PARTIAL_PIPS * pip
+                target_partial = entry + partial_pips * pip
                 if not partial_done and bar_h >= target_partial:
-                    record_exit(pos, target_partial, pos["qty_part"], "partial_10pip", i, "partial")
+                    record_exit(pos, target_partial, pos["qty_part"], f"partial_{int(partial_pips)}pip", i, "partial")
                     pos["partial_done"] = True
                     pos["sl"] = entry
                     sl = entry
@@ -384,9 +391,9 @@ def run_backtest(symbol: str, tf: str) -> dict:
                     continue
 
             else:  # short
-                target_partial = entry - PARTIAL_PIPS * pip
+                target_partial = entry - partial_pips * pip
                 if not partial_done and bar_l <= target_partial:
-                    record_exit(pos, target_partial, pos["qty_part"], "partial_10pip", i, "partial")
+                    record_exit(pos, target_partial, pos["qty_part"], f"partial_{int(partial_pips)}pip", i, "partial")
                     pos["partial_done"] = True
                     pos["sl"] = entry
                     sl = entry
@@ -483,6 +490,7 @@ def run_backtest(symbol: str, tf: str) -> dict:
         "equity": eq,
         "final": capital,
         "total_fees": total_fees,
+        "partial_pips": partial_pips,
     }
 
 
