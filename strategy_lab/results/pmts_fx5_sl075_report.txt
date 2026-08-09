@@ -1,0 +1,12 @@
+PMTS 4H fib + 5m BOS | SL @ 0.75 fib | TP @ opposite anchor
+Data: Dukascopy M5 bid (~OANDA FX hours), $10k capital, $3000 fixed notional, 365d
+
+symbol  trades  wins  losses        wr       pf         net   net_pct  max_dd_pct  sl_hits  tp_hits
+EURUSD      16     6      10 37.500000 0.431710 -119.244366 -1.192444   -1.247848       10        6
+GBPUSD      26    15      11 57.692308 1.114122   19.985128  0.199851   -0.795750       11       15
+USDJPY      29    16      13 55.172414 1.026999    7.759603  0.077596   -1.447635       13       16
+AUDUSD      21     7      14 33.333333 0.608827  -99.916013 -0.999160   -1.198288       14        7
+USDCAD      19     6      13 31.578947 0.422850  -66.978419 -0.669784   -0.801916       13        6
+
+Portfolio equal-weight avg net%: -0.52%
+Profitable pairs: 2/5

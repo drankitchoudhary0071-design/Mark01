@@ -1,0 +1,96 @@
+//@version=5
+// BTC 4H RSI Mean-Reversion (TV-aligned)
+// Port of strategy_lab/strategies/btc_4h_rsi_mr.py
+//
+// ★ USE ON TRADINGVIEW
+// 1. Chart: BTCUSDT (Binance) or BTCUSDT.P — timeframe **4 hours**
+// 2. Paste this script → Add to chart
+// 3. Strategy Tester → Commission = 0.1% (percent of equity / order value)
+// 4. Date range ≈ last 1 year to match lab window
+//
+// Logic (textbook Wilder — no pivot lookahead):
+// - Long  when RSI(14) crosses UP through 30
+// - Short when RSI(14) crosses DOWN through 70
+// - Stop = 1.5 × ATR(14), TP = 3.0 × ATR(14)  → fixed 1:2 RR
+// - One position at a time; size by 1% equity risk
+//
+// Lab (honest, no lookahead) on BTCUSDT 4h, 2025-08-07 → 2026-08-07:
+//   Walk-forward OOS ≈ +18% (82 trades, WR≈45%, PF≈1.36) under ~0.26% RT costs
+//   Holdout last 25%  ≈ +3%  — modest; not every fold wins
+// Past results ≠ future performance.
+
+strategy(
+     title                   = "BTC 4H RSI Mean-Reversion",
+     shorttitle              = "BTC-4H-RSI-MR",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 2
+ )
+
+// ═══════════════════════ Inputs ═══════════════════════
+grpSig = "RSI Signal"
+rsiLen = input.int(14, "RSI period", minval=2, group=grpSig)
+osLvl  = input.int(30, "Oversold (long cross up)", minval=5, maxval=50, group=grpSig)
+obLvl  = input.int(70, "Overbought (short cross down)", minval=50, maxval=95, group=grpSig)
+
+grpRisk = "Risk (1:2 ATR)"
+atrLen  = input.int(14, "ATR period", minval=1, group=grpRisk)
+stopAtr = input.float(1.5, "Stop ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+tpAtr   = input.float(3.0, "Take-profit ATR multiple", minval=0.1, step=0.1, group=grpRisk)
+riskPct = input.float(1.0, "Risk per trade % equity", minval=0.1, step=0.1, group=grpRisk) / 100.0
+
+grpVis = "Visuals"
+showLevels = input.bool(true, "Highlight RSI cross bars", group=grpVis)
+
+// ═══════════════════════ Indicators ═══════════════════════
+rsiVal = ta.rsi(close, rsiLen)
+atrVal = ta.atr(atrLen)
+
+longCond  = ta.crossover(rsiVal, osLvl)
+shortCond = ta.crossunder(rsiVal, obLvl)
+
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    stopDist = math.abs(entryPrice - stopPrice)
+    stopDist > 0 ? riskCash / stopDist : na
+
+flat = strategy.position_size == 0
+ok   = not na(atrVal) and atrVal > 0
+
+// ═══════════════════════ Entries ═══════════════════════
+if flat and ok and longCond
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTp)
+
+if flat and ok and shortCond
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTp)
+
+// ═══════════════════════ Visuals ═══════════════════════
+bgcolor(showLevels and longCond ? color.new(color.teal, 85) : na, title="Long signal")
+bgcolor(showLevels and shortCond ? color.new(color.maroon, 85) : na, title="Short signal")
+plotshape(longCond and flat, title="Long", style=shape.triangleup, location=location.belowbar,
+     color=color.teal, size=size.small, text="L")
+plotshape(shortCond and flat, title="Short", style=shape.triangledown, location=location.abovebar,
+     color=color.maroon, size=size.small, text="S")
+
+plotchar(rsiVal, title="RSI", char="", location=location.absolute, color=color.new(color.purple, 100))
+
+alertcondition(longCond, title="RSI MR Long", message="BTC 4H RSI MR long on {{ticker}}")
+alertcondition(shortCond, title="RSI MR Short", message="BTC 4H RSI MR short on {{ticker}}")
