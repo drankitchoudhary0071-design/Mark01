@@ -1,0 +1,11 @@
+{
+  "version": "v5_pine_port",
+  "ema21_angle": true,
+  "angle_lookback_min": 60.0,
+  "min_angle_deg": 10.0,
+  "pivot_len": 5,
+  "chase_pips": 8.0,
+  "partial_pips": 10.0,
+  "position_pct": 1.0,
+  "commission": 0.0002
+}

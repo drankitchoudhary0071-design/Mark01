@@ -1,0 +1,5 @@
+entry_time,direction,entry_price,exit_time,exit_price,sl_price,tp_price,pnl,exit_hit,mode,poi_kind,step4
+2025-11-14 01:30:00+00:00,short,4174.395,2025-11-14 01:45:00+00:00,4186.685,4186.685,4168.408,-8.832417631776554,SL,conservative,fvg,conservative_ms_retest
+2025-12-08 10:00:00+00:00,long,4207.615,2025-12-08 10:00:00+00:00,4209.915,4202.595,4209.915,1.639883877208477,TP,conservative,ob,conservative_ms_retest
+2025-12-09 13:00:00+00:00,long,4204.025,2025-12-09 13:00:00+00:00,4206.125,4199.375,4206.125,1.4985638762854865,TP,conservative,fvg,conservative_ms_retest
+2026-02-16 01:15:00+00:00,long,5022.545,2026-02-16 02:45:00+00:00,4999.128,4999.128,5033.618,-13.987132021714313,SL,conservative,fvg,conservative_ms_retest

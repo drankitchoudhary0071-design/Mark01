@@ -1,0 +1,53 @@
+PMTS Fib — more trades with WR/DD protected | PAXGUSDT Gold | Capital $10,000 | 365d
+Costs ≈ 0.30% RT | risk 1%/trade | TP = Pine anchor (swing extreme)
+
+BASELINE (old Pine defaults)
+  1H | entry 0.6 | SL buf 3 | hold 72 | no HTF
+  Trades=17 | Wins=9 Losses=8 | WR=52.9% | MaxDD=-3.1% | PnL=+$339 (+3.4%) | Equity=$10,339
+
+GOAL
+  Increase trades; keep WR same/better; keep MaxDD same/better.
+
+--------------------------------------------------------------------------------
+RECOMMENDED (more trades + better WR + better DD)
+--------------------------------------------------------------------------------
+  Chart: 4H
+  Entry fib: 0.5 (shallower pullback → more fills)
+  SL buffer: 5 pts
+  TP: anchor (same as Pine)
+  HTF bias: 1D EMA50 (long only if HTF bull, short only if HTF bear)
+  max hold: 12 bars (~2 days)
+
+  Trades=21 | Wins=12 Losses=9 | WR=57.1% | PF=1.53
+  MaxDD=-2.6% | PnL=+$198 (+2.0%) | Equity=$10,198
+
+  vs baseline: trades +4 | WR +4.2pp | DD better by 0.5pp | Ret -1.4pp
+
+--------------------------------------------------------------------------------
+ALTERNATES
+--------------------------------------------------------------------------------
+MOST TRADES still meeting WR≥50% & DD≥-3.5%:
+  4H entry0.5 buf5 hold10 HTF=1D
+  Trades=24 | W/L=12/12 | WR=50.0% | MaxDD=-2.7% | PnL=+$96 (+1.0%)
+
+SLIGHTLY MORE TRADES + HIGHER RETURN (WR dips to 50%):
+  1H entry0.6 buf3 hold60 no HTF
+  Trades=18 | WR=50.0% | MaxDD=-2.9% | PnL=+$397 (+4.0%) | Equity=$10,397
+
+QUALITY MODE (fewer trades, best edge):
+  1H entry0.6 buf3 hold72 + HTF 4H EMA50
+  Trades=10 | W/L=7/3 | WR=70.0% | MaxDD=-1.1% | PnL=+$584 (+5.8%) | Equity=$10,584
+
+--------------------------------------------------------------------------------
+WHAT DID NOT WORK
+--------------------------------------------------------------------------------
+- Blindly raising frequency (15m / entry0.5 without HTF) → more trades but WR↓ DD↑ losses
+  e.g. 4H entry0.5 buf5 no HTF hold12: n=40 WR=40% DD=-7.2% Ret=-5.1%
+- 3R TP still weak after costs vs anchor/5R
+
+--------------------------------------------------------------------------------
+TAKEAWAY
+--------------------------------------------------------------------------------
+To raise trade count WITHOUT hurting WR/DD: use shallower entry (0.5) on 4H
+PLUS daily HTF bias filter. Return stays modest at 1% risk; don't expect huge
+equity jumps from ~20 trades/year.

@@ -1,0 +1,13 @@
+{
+  "ema_fast": 9,
+  "ema_slow": 21,
+  "pivot_len": 5,
+  "rr": 2.0,
+  "position_pct": 0.05,
+  "vol_ma_len": 20,
+  "vol_mult": 1.0,
+  "session_utc": "07:00-22:00",
+  "xau_slip_pips": 0.5,
+  "crypto_commission": 0.001,
+  "compounding": true
+}

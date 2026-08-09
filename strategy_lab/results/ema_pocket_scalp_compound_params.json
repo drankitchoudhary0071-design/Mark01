@@ -1,0 +1,25 @@
+{
+  "initial_capital": 10000.0,
+  "position_pct": 0.05,
+  "compounding": true,
+  "xau_slip_pips_per_side": 0.5,
+  "crypto_costs": {
+    "commission_rate": 0.001,
+    "half_spread": 0.0002,
+    "slippage": 0.0003,
+    "round_trip_pct": 0.3
+  },
+  "ema_fast": 9,
+  "ema_slow": 21,
+  "rsi_len": 14,
+  "recovery_bars": 5,
+  "partial_pips": 10,
+  "chase_pips": 5,
+  "min_ema_angle_deg": 30.0,
+  "session_utc": "7:00-22:00",
+  "pip_sizes": {
+    "XAUUSD": 0.1,
+    "PAXGUSDT": 0.1,
+    "BTCUSDT": 10.0
+  }
+}
