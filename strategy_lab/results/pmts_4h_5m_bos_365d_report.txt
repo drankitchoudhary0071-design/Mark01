@@ -1,0 +1,16 @@
+PMTS 4H Fib Golden Zone + 5min BOS Confirmation
+Capital $10,000 | 365 days | risk 1%/trade | chart 5m + HTF 4h
+Zone 0.5–0.7 | SL = 0.7 fib | TP = HTF anchor extreme
+Arm on zone tap; entry on LTF BOS in HTF direction; disarm after entry
+
+RESULTS
+------------------------------------------------------------------------------------------
+BTCUSDT    full_0.30%   | Trades=  15 W/L=6/9 WR=40.0% PF=1.26 MaxDD=-4.7% PnL=$+157 Ret=+1.6% Equity=$10157
+PAXGUSDT   full_0.30%   | Trades=  27 W/L=10/17 WR=37.0% PF=0.51 MaxDD=-2.7% PnL=$-244 Ret=-2.4% Equity=$9756
+BTCUSDT    tv_0.1%      | Trades=  15 W/L=6/9 WR=40.0% PF=1.45 MaxDD=-4.3% PnL=$+249 Ret=+2.5% Equity=$10249
+PAXGUSDT   tv_0.1%      | Trades=  27 W/L=10/17 WR=37.0% PF=0.65 MaxDD=-2.0% PnL=$-156 Ret=-1.6% Equity=$9844
+
+NOTES
+- Lab uses risk sizing 1%/trade (Pine script uses fixed qty=1 — equity path differs).
+- HTF mapped with closed-bar only (no lookahead), matching request.security lookahead_off.
+- Full costs ≈ 0.10% commission/side + half-spread + slippage (~0.30% RT).

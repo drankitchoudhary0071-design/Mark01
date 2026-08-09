@@ -1,0 +1,165 @@
+//@version=6
+// PMTS — 4H Fib Golden Zone + 5min BOS Confirmation
+// Lab: strategy_lab/strategies/pmts_4h_5m_bos.py
+strategy("PMTS - 4H Fib Zone + 5min BOS Confirmation",
+     overlay=true,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=10,
+     initial_capital=10000,
+     currency=currency.USD,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     process_orders_on_close=true,
+     pyramiding=0,
+     margin_long=100,
+     margin_short=100)
+
+htfTF        = input.timeframe("240", "HTF for Structure + Fib (4H)")
+htfSwingLen  = input.int(3, "HTF Swing Pivot Lookback (bars each side)", minval=1)
+zoneUpper    = input.float(0.5, "Golden Zone Upper Bound (fib)", step=0.001)
+zoneLower    = input.float(0.7, "Golden Zone Lower Bound / Reversal Level (fib)", step=0.001)
+ltfSwingLen  = input.int(3, "LTF (5min) Swing Pivot Lookback for BOS", minval=1)
+showZones    = input.bool(true, "Show Fib Zone on Chart")
+
+f_pmts() =>
+    var string direction  = na
+    var float  anchorLow  = na
+    var float  anchorHigh = na
+
+    phVal = ta.pivothigh(high, htfSwingLen, htfSwingLen)
+    plVal = ta.pivotlow(low, htfSwingLen, htfSwingLen)
+
+    var float lastSwingHigh = na
+    var float lastSwingLow  = na
+    if not na(phVal)
+        lastSwingHigh := phVal
+    if not na(plVal)
+        lastSwingLow := plVal
+
+    if na(direction)
+        if not na(lastSwingHigh) and not na(lastSwingLow)
+            if close > lastSwingHigh
+                direction  := "bull"
+                anchorLow  := lastSwingLow
+                anchorHigh := high
+            else if close < lastSwingLow
+                direction  := "bear"
+                anchorHigh := lastSwingHigh
+                anchorLow  := low
+    else if direction == "bull"
+        if high > anchorHigh
+            anchorHigh := high
+        if close < anchorHigh - (anchorHigh - anchorLow) * zoneLower
+            prevHigh   = anchorHigh
+            direction  := "bear"
+            anchorHigh := prevHigh
+            anchorLow  := low
+    else if direction == "bear"
+        if low < anchorLow
+            anchorLow := low
+        if close > anchorLow + (anchorHigh - anchorLow) * zoneLower
+            prevLow    = anchorLow
+            direction  := "bull"
+            anchorLow  := prevLow
+            anchorHigh := high
+
+    [direction, anchorHigh, anchorLow]
+
+[htfDir, htfAnchorHigh, htfAnchorLow] = request.security(syminfo.tickerid, htfTF, f_pmts(), lookahead=barmerge.lookahead_off)
+
+float zoneTop    = na
+float zoneBottom = na
+float slPx       = na
+float tpPx       = na
+
+if htfDir == "bull"
+    range_ = htfAnchorHigh - htfAnchorLow
+    zoneTop    := htfAnchorHigh - range_ * zoneUpper
+    zoneBottom := htfAnchorHigh - range_ * zoneLower
+    slPx       := zoneBottom
+    tpPx       := htfAnchorHigh
+else if htfDir == "bear"
+    range_ = htfAnchorHigh - htfAnchorLow
+    zoneBottom := htfAnchorLow + range_ * zoneUpper
+    zoneTop    := htfAnchorLow + range_ * zoneLower
+    slPx       := zoneTop
+    tpPx       := htfAnchorLow
+
+ltfPH = ta.pivothigh(high, ltfSwingLen, ltfSwingLen)
+ltfPL = ta.pivotlow(low, ltfSwingLen, ltfSwingLen)
+
+var float ltfSwingHigh = na
+var float ltfSwingLow  = na
+if not na(ltfPH)
+    ltfSwingHigh := ltfPH
+if not na(ltfPL)
+    ltfSwingLow := ltfPL
+
+bullBOS = not na(ltfSwingHigh) and ta.crossover(close, ltfSwingHigh)
+bearBOS = not na(ltfSwingLow) and ta.crossunder(close, ltfSwingLow)
+
+var bool armed = false
+var string armedDir = na
+var float lockedSL = na
+var float lockedTP = na
+
+inZoneNow = not na(zoneTop) and not na(zoneBottom) and low <= zoneTop and high >= zoneBottom
+
+dirChanged = not na(htfDir) and htfDir != armedDir
+if dirChanged
+    armed := false
+    armedDir := htfDir
+
+if inZoneNow
+    armed := true
+
+bool longSignal  = false
+bool shortSignal = false
+
+if strategy.position_size == 0 and armed
+    if htfDir == "bull" and bullBOS
+        longSignal := true
+    else if htfDir == "bear" and bearBOS
+        shortSignal := true
+
+if longSignal
+    lockedSL := slPx
+    lockedTP := tpPx
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", stop=lockedSL, limit=lockedTP)
+    armed := false
+
+if shortSignal
+    lockedSL := slPx
+    lockedTP := tpPx
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", stop=lockedSL, limit=lockedTP)
+    armed := false
+
+if strategy.position_size > 0 and not na(lockedSL)
+    strategy.exit("Long Exit", "Long", stop=lockedSL, limit=lockedTP)
+if strategy.position_size < 0 and not na(lockedSL)
+    strategy.exit("Short Exit", "Short", stop=lockedSL, limit=lockedTP)
+
+plot(showZones ? zoneTop : na, color=color.yellow, title="Zone 0.5", style=plot.style_linebr)
+plot(showZones ? zoneBottom : na, color=color.red, title="Zone 0.7 / SL", style=plot.style_linebr)
+plot(showZones ? tpPx : na, color=color.lime, title="TP (Anchor Extreme)", style=plot.style_linebr)
+plotshape(longSignal, location=location.belowbar, style=shape.triangleup, color=color.green, size=size.small)
+plotshape(shortSignal, location=location.abovebar, style=shape.triangledown, color=color.red, size=size.small)
+
+if barstate.islast
+    var table t = table.new(position.top_right, 2, 6, border_width=1)
+    float wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0
+    float pf = strategy.grossloss != 0 ? strategy.grossprofit / math.abs(strategy.grossloss) : na
+    table.cell(t, 0, 0, "PMTS 4H+5m", bgcolor=color.blue, text_color=color.white)
+    table.cell(t, 1, 0, timeframe.period, bgcolor=color.blue, text_color=color.white)
+    table.cell(t, 0, 1, "Trades")
+    table.cell(t, 1, 1, str.tostring(strategy.closedtrades))
+    table.cell(t, 0, 2, "Win Rate")
+    table.cell(t, 1, 2, str.tostring(wr, "#.#") + "%")
+    table.cell(t, 0, 3, "Net Profit")
+    table.cell(t, 1, 3, str.tostring(strategy.netprofit, "#.##"))
+    table.cell(t, 0, 4, "Profit Factor")
+    table.cell(t, 1, 4, na(pf) ? "n/a" : str.tostring(pf, "#.##"))
+    table.cell(t, 0, 5, "Armed")
+    table.cell(t, 1, 5, str.tostring(armed))
