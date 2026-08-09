@@ -507,20 +507,27 @@ def main():
         f"zone={zone_upper}/{zone_lower} ltf_swing={ltf_swing_len} "
         f"sl_pct={sl_pct}% tp_pct={tp_pct}% notional=${FIXED_NOTIONAL}"
     )
+    print(
+        "Symbols: BTCUSDT/PAXGUSDT = Binance; "
+        "XAUUSD = Dukascopy gold spot (OANDA-style FX hours, bid OHLC)"
+    )
     all_text = []
-    for sym in ("BTCUSDT", "PAXGUSDT"):
+    for sym in ("BTCUSDT", "PAXGUSDT", "XAUUSD"):
         print(f"\nRunning {sym}...")
         out = run_backtest(sym)
         tdf = out["trades"]
         eq = out["equity"]
-        text = summarize(sym, tdf, eq, out["final"])
+        label = sym
+        if sym == "XAUUSD":
+            label = "XAUUSD (Dukascopy ≈ OANDA XAU/USD)"
+        text = summarize(label, tdf, eq, out["final"])
         print(text)
         all_text.append(text)
         stem = sym.lower()
         if not tdf.empty:
             tdf.to_csv(OUT / f"{stem}_trade_log.csv", index=False)
         eq.to_csv(OUT / f"{stem}_equity.csv", header=["equity"])
-        plot_equity(sym, eq, OUT / f"{stem}_equity_curve.png")
+        plot_equity(label, eq, OUT / f"{stem}_equity_curve.png")
         print(f"Wrote {OUT / f'{stem}_equity_curve.png'}")
 
     (OUT / "pmts_exact_v3_report.txt").write_text("\n\n".join(all_text) + "\n")
@@ -535,6 +542,7 @@ def main():
         "tp_pct": tp_pct,
         "initial_capital": INITIAL_CAPITAL,
         "fixed_notional": FIXED_NOTIONAL,
+        "xauusd_source": "Dukascopy XAUUSD M5 bid (proxy for OANDA XAU/USD; not OANDA API)",
     }
     (OUT / "params.json").write_text(json.dumps(meta, indent=2))
     print(f"\nAll artifacts in {OUT}")

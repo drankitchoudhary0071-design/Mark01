@@ -17,3 +17,6 @@ venv/
 *.egg-info/
 !results/pmts_exact_v3_btcusdt_equity.png
 !results/pmts_exact_v3_paxgusdt_equity.png
+!results/pmts_exact_v3_xauusd_report.txt
+!results/pmts_exact_v3_xauusd_trades.csv
+!results/pmts_exact_v3_xauusd_equity.png

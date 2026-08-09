@@ -157,7 +157,11 @@ def load_or_fetch(
     use_cache: bool = True,
     refresh: bool = False,
 ) -> pd.DataFrame:
-    """Load CSV cache or fetch from Binance, then gap-fill."""
+    """Load CSV cache or fetch from Binance, then gap-fill.
+
+    Non-Binance symbols (e.g. XAUUSD from Dukascopy) must already be cached;
+    use ``strategy_lab/data/fetch_xauusd_dukascopy.sh`` to populate XAUUSD.
+    """
     path = cache_path(symbol, interval, days)
     if use_cache and path.exists() and not refresh:
         df = pd.read_csv(path, parse_dates=["timestamp"])
@@ -165,6 +169,12 @@ def load_or_fetch(
             df["timestamp"] = df["timestamp"].dt.tz_localize("UTC")
         print(f"Loaded cache {path} ({len(df)} bars)")
         return df
+
+    if symbol.upper() == "XAUUSD":
+        raise FileNotFoundError(
+            f"Missing {path}. Run strategy_lab/data/fetch_xauusd_dukascopy.sh "
+            "to download Dukascopy XAUUSD (OANDA-style gold spot proxy)."
+        )
 
     raw = fetch_ohlcv(symbol, interval, days)
     df, report = fill_gaps(raw, interval)
