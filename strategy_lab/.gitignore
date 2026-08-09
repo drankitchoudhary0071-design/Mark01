@@ -25,3 +25,7 @@ venv/
 !results/pmts_exit_sweep_diagnosis.txt
 !results/pmts_exit_sweep_xauusd_best_equity.png
 !results/pmts_exit_sl07_xauusd_trades.csv
+!results/pmts_sl075_compare.csv
+!results/pmts_sl075_btcusdt_trades.csv
+!results/pmts_sl075_paxgusdt_trades.csv
+!results/pmts_sl075_xauusd_trades.csv
