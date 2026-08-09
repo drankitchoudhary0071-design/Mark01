@@ -20,3 +20,8 @@ venv/
 !results/pmts_exact_v3_xauusd_report.txt
 !results/pmts_exact_v3_xauusd_trades.csv
 !results/pmts_exact_v3_xauusd_equity.png
+!results/pmts_exit_sweep_summary.csv
+!results/pmts_exit_sweep_report.txt
+!results/pmts_exit_sweep_diagnosis.txt
+!results/pmts_exit_sweep_xauusd_best_equity.png
+!results/pmts_exit_sl07_xauusd_trades.csv
