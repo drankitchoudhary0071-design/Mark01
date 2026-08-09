@@ -3,6 +3,10 @@ cache/
 results/*
 !results/.gitkeep
 !results/summary_comparison.csv
+!results/pmts_exact_v3_365d_report.txt
+!results/pmts_exact_v3_btcusdt_trades.csv
+!results/pmts_exact_v3_paxgusdt_trades.csv
+!results/pmts_exact_v3_params.json
 
 __pycache__/
 *.pyc
@@ -11,3 +15,5 @@ __pycache__/
 venv/
 .env
 *.egg-info/
+!results/pmts_exact_v3_btcusdt_equity.png
+!results/pmts_exact_v3_paxgusdt_equity.png
