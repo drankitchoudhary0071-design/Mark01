@@ -47,3 +47,10 @@ venv/
 !results/pmts_xau_5y_sl075_trades.csv
 !results/pmts_xau_5y_sl075_yearly.csv
 !results/pmts_xau_5y_modes_summary.csv
+!results/bb_rsi_ha_3m_report.txt
+!results/bb_rsi_ha_3m_summary.csv
+!results/bb_rsi_ha_3m_params.json
+!results/bb_rsi_ha_3m_btcusdt_trades.csv
+!results/bb_rsi_ha_3m_paxgusdt_trades.csv
+!results/bb_rsi_ha_3m_btcusdt_equity.png
+!results/bb_rsi_ha_3m_paxgusdt_equity.png
