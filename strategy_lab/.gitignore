@@ -47,3 +47,14 @@ venv/
 !results/pmts_xau_5y_sl075_trades.csv
 !results/pmts_xau_5y_sl075_yearly.csv
 !results/pmts_xau_5y_modes_summary.csv
+!results/gold_smc_5step_summary.csv
+!results/gold_smc_5step_report.txt
+!results/gold_smc_5step_params.json
+!results/gold_smc_5step_paxgusdt_aggressive_trades.csv
+!results/gold_smc_5step_paxgusdt_conservative_trades.csv
+!results/gold_smc_5step_xauusd_aggressive_trades.csv
+!results/gold_smc_5step_xauusd_conservative_trades.csv
+!results/gold_smc_5step_paxgusdt_aggressive_equity.png
+!results/gold_smc_5step_paxgusdt_conservative_equity.png
+!results/gold_smc_5step_xauusd_aggressive_equity.png
+!results/gold_smc_5step_xauusd_conservative_equity.png
