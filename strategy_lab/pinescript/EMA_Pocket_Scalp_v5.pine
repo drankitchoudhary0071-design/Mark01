@@ -1,0 +1,8 @@
+//@version=6
+strategy("Triple 9 EMA Pocket Scalp (v5 - Time-Normalized Angle)", overlay=true,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     initial_capital=10000, currency=currency.USD,
+     commission_type=strategy.commission.percent, commission_value=0.02,
+     slippage=1, calc_on_every_tick=true)
+
+// See run_ema_pocket_v5.py for Python backtest port of this script.
