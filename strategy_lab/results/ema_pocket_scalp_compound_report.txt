@@ -1,0 +1,43 @@
+==========================================================================================
+RESULTS — XAUUSD 1m
+==========================================================================================
+Capital=$10,000 | Position=5%/trade (compounding) | Slippage: XAU 0.5pip/side, PAXG ~0.30% RT
+Trades=428  Wins=226  Losses=201  WR=52.8%
+PF=1.334  GP=$11.51  GL=$8.63
+Net=$2.88 (+0.03%)  Final=$10002.88
+MaxDD=$-0.57 (-0.01%)
+Total commission paid=$0.00
+Leg exits: {'sl': 336, 'partial_10pip': 187, 'next_resistance': 42, 'ema21_close': 33, 'next_support': 12, 'sl_be': 5}
+
+==========================================================================================
+RESULTS — XAUUSD 5m
+==========================================================================================
+Capital=$10,000 | Position=5%/trade (compounding) | Slippage: XAU 0.5pip/side, PAXG ~0.30% RT
+Trades=60  Wins=47  Losses=13  WR=78.3%
+PF=2.282  GP=$2.43  GL=$1.07
+Net=$1.37 (+0.01%)  Final=$10001.37
+MaxDD=$-0.26 (-0.00%)
+Total commission paid=$0.00
+Leg exits: {'sl': 55, 'partial_10pip': 45, 'ema21_close': 3, 'next_resistance': 2}
+
+==========================================================================================
+RESULTS — PAXGUSDT 1m
+==========================================================================================
+Capital=$10,000 | Position=5%/trade (compounding) | Slippage: XAU 0.5pip/side, PAXG ~0.30% RT
+Trades=503  Wins=0  Losses=503  WR=0.0%
+PF=0.000  GP=$0.00  GL=$408.69
+Net=$-408.69 (-4.09%)  Final=$9591.31
+MaxDD=$-408.69 (-4.09%)
+Total commission paid=$283.95
+Leg exits: {'sl': 344, 'ema21_close': 101, 'partial_10pip': 77, 'next_resistance': 34, 'next_support': 18, 'sl_be': 6}
+
+==========================================================================================
+RESULTS — PAXGUSDT 5m
+==========================================================================================
+Capital=$10,000 | Position=5%/trade (compounding) | Slippage: XAU 0.5pip/side, PAXG ~0.30% RT
+Trades=63  Wins=0  Losses=63  WR=0.0%
+PF=0.000  GP=$0.00  GL=$53.98
+Net=$-53.98 (-0.54%)  Final=$9946.02
+MaxDD=$-53.98 (-0.54%)
+Total commission paid=$37.89
+Leg exits: {'sl': 48, 'partial_10pip': 13, 'ema21_close': 9, 'next_resistance': 4, 'sl_be': 1, 'next_support': 1}

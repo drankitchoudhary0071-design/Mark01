@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from strategy_lab.data.fetch import load_or_fetch
+from strategy_lab.engine.costs import CostModel, apply_entry_price, apply_exit_price
 
 # ── parameters ─────────────────────────────────────────────────────────
 EMA_FAST = 9
@@ -54,8 +55,12 @@ SESSION_START_H = 7
 SESSION_END_H = 22
 
 INITIAL_CAPITAL = 10_000.0
-FIXED_NOTIONAL = 3_000.0
+POSITION_PCT = 0.05  # 5% of equity per trade (compounding)
 DAYS = 365
+
+# Costs: Binance taker for PAXG; pip spread+slip for XAUUSD (OANDA-style)
+CRYPTO_COSTS = CostModel(commission_rate=0.001, half_spread=0.0002, slippage=0.0003)
+XAU_SLIP_PIPS = 0.5  # adverse spread+slippage per side (~0.5 pip gold)
 
 PIP_SIZE = {
     "XAUUSD": 0.10,
@@ -66,6 +71,49 @@ PIP_SIZE = {
 OUT = Path(__file__).resolve().parent / "results" / "ema_pocket_scalp"
 OUT.mkdir(parents=True, exist_ok=True)
 FLAT = Path(__file__).resolve().parent / "results"
+
+
+def entry_fill(raw: float, direction: str, symbol: str, pip: float) -> float:
+    if symbol == "XAUUSD":
+        slip = XAU_SLIP_PIPS * pip
+        return raw + slip if direction == "long" else raw - slip
+    return apply_entry_price(raw, direction, CRYPTO_COSTS)
+
+
+def exit_fill(raw: float, direction: str, symbol: str, pip: float) -> float:
+    if symbol == "XAUUSD":
+        slip = XAU_SLIP_PIPS * pip
+        return raw - slip if direction == "long" else raw + slip
+    return apply_exit_price(raw, direction, CRYPTO_COSTS)
+
+
+def leg_pnl(
+    direction: str,
+    entry_px: float,
+    exit_raw: float,
+    qty: float,
+    symbol: str,
+    pip: float,
+) -> tuple[float, float]:
+    """Return (net_pnl, exit_fill) for one closed leg."""
+    xf = exit_fill(exit_raw, direction, symbol, pip)
+    if direction == "long":
+        gross = (xf - entry_px) * qty
+    else:
+        gross = (entry_px - xf) * qty
+    fees = 0.0
+    if symbol != "XAUUSD":
+        fees = (entry_px + xf) * qty * CRYPTO_COSTS.commission_rate
+    return gross - fees, xf
+
+
+def position_size(capital: float, entry_px: float) -> tuple[float, float, float]:
+    """Return (qty_total, qty_partial, qty_remainder) from compounding notional."""
+    notional = capital * POSITION_PCT
+    qty_total = notional / entry_px
+    qty_part = qty_total * PARTIAL_FRAC
+    qty_rem = qty_total * (1.0 - PARTIAL_FRAC)
+    return qty_total, qty_part, qty_rem
 
 
 def ema(arr: np.ndarray, span: int) -> np.ndarray:
@@ -269,8 +317,36 @@ def run_backtest(symbol: str, tf: str) -> dict:
     trades: list[dict] = []
     equity = [capital]
     equity_ts = [ts.iloc[warmup]]
+    total_fees = 0.0
 
-    pos = None  # active position dict
+    pos = None
+
+    def record_exit(pos_dict, exit_raw, qty, exit_hit, bar_i, leg):
+        nonlocal capital, total_fees
+        if qty <= 0:
+            return
+        pnl, xf = leg_pnl(pos_dict["dir"], pos_dict["entry"], exit_raw, qty, symbol, pip)
+        if symbol != "XAUUSD":
+            fees = (pos_dict["entry"] + xf) * qty * CRYPTO_COSTS.commission_rate
+            total_fees += fees
+        capital += pnl
+        trades.append(
+            {
+                "entry_time": pos_dict["entry_time"],
+                "exit_time": ts.iloc[bar_i],
+                "direction": pos_dict["dir"],
+                "leg": leg,
+                "entry_price": pos_dict["entry"],
+                "exit_price": xf,
+                "qty": qty,
+                "notional_pct": POSITION_PCT,
+                "equity_at_entry": pos_dict["equity_at_entry"],
+                "pnl": float(pnl),
+                "exit_hit": exit_hit,
+            }
+        )
+        equity.append(capital)
+        equity_ts.append(ts.iloc[bar_i])
 
     for i in range(warmup, len(df) - 1):
         if pos is not None:
@@ -282,190 +358,59 @@ def run_backtest(symbol: str, tf: str) -> dict:
             partial_done = pos["partial_done"]
 
             if direction == "long":
-                # partial at +10 pips
                 target_partial = entry + PARTIAL_PIPS * pip
                 if not partial_done and bar_h >= target_partial:
-                    partial_px = target_partial
-                    pnl_part = (partial_px - entry) * pos["qty_part"]
-                    capital += pnl_part
+                    record_exit(pos, target_partial, pos["qty_part"], "partial_10pip", i, "partial")
                     pos["partial_done"] = True
-                    pos["qty_rem"] = 0.0
                     pos["sl"] = entry
                     sl = entry
-                    trades.append(
-                        {
-                            "entry_time": pos["entry_time"],
-                            "exit_time": ts.iloc[i],
-                            "direction": "long",
-                            "leg": "partial",
-                            "entry_price": entry,
-                            "exit_price": partial_px,
-                            "pnl": float(pnl_part),
-                            "exit_hit": "partial_10pip",
-                        }
-                    )
 
-                # stop loss (incl breakeven)
                 if bar_l <= sl:
-                    exit_px = sl
-                    pnl = (exit_px - entry) * qty_rem if qty_rem > 0 else 0.0
                     if qty_rem > 0:
-                        capital += pnl
-                        trades.append(
-                            {
-                                "entry_time": pos["entry_time"],
-                                "exit_time": ts.iloc[i],
-                                "direction": "long",
-                                "leg": "remainder",
-                                "entry_price": entry,
-                                "exit_price": exit_px,
-                                "pnl": float(pnl),
-                                "exit_hit": "sl_be" if partial_done else "sl",
-                            }
-                        )
+                        record_exit(pos, sl, qty_rem, "sl_be" if partial_done else "sl", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
-                # 21 EMA opposite close
                 if np.isfinite(e21[i]) and bar_c < e21[i]:
-                    exit_px = bar_c
-                    pnl = (exit_px - entry) * qty_rem if qty_rem > 0 else 0.0
                     if qty_rem > 0:
-                        capital += pnl
-                        trades.append(
-                            {
-                                "entry_time": pos["entry_time"],
-                                "exit_time": ts.iloc[i],
-                                "direction": "long",
-                                "leg": "remainder",
-                                "entry_price": entry,
-                                "exit_price": exit_px,
-                                "pnl": float(pnl),
-                                "exit_hit": "ema21_close",
-                            }
-                        )
+                        record_exit(pos, bar_c, qty_rem, "ema21_close", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
-                # next resistance
                 tp_lvl = next_sr_target(h, l, ph, pl, i, "long", entry, lb * 4)
                 if tp_lvl is not None and bar_h >= tp_lvl and qty_rem > 0:
-                    exit_px = tp_lvl
-                    pnl = (exit_px - entry) * qty_rem
-                    capital += pnl
-                    trades.append(
-                        {
-                            "entry_time": pos["entry_time"],
-                            "exit_time": ts.iloc[i],
-                            "direction": "long",
-                            "leg": "remainder",
-                            "entry_price": entry,
-                            "exit_price": exit_px,
-                            "pnl": float(pnl),
-                            "exit_hit": "next_resistance",
-                        }
-                    )
+                    record_exit(pos, tp_lvl, qty_rem, "next_resistance", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
             else:  # short
                 target_partial = entry - PARTIAL_PIPS * pip
                 if not partial_done and bar_l <= target_partial:
-                    partial_px = target_partial
-                    pnl_part = (entry - partial_px) * pos["qty_part"]
-                    capital += pnl_part
+                    record_exit(pos, target_partial, pos["qty_part"], "partial_10pip", i, "partial")
                     pos["partial_done"] = True
-                    pos["qty_rem"] = 0.0
                     pos["sl"] = entry
                     sl = entry
-                    trades.append(
-                        {
-                            "entry_time": pos["entry_time"],
-                            "exit_time": ts.iloc[i],
-                            "direction": "short",
-                            "leg": "partial",
-                            "entry_price": entry,
-                            "exit_price": partial_px,
-                            "pnl": float(pnl_part),
-                            "exit_hit": "partial_10pip",
-                        }
-                    )
 
                 if bar_h >= sl:
-                    exit_px = sl
-                    pnl = (entry - exit_px) * qty_rem if qty_rem > 0 else 0.0
                     if qty_rem > 0:
-                        capital += pnl
-                        trades.append(
-                            {
-                                "entry_time": pos["entry_time"],
-                                "exit_time": ts.iloc[i],
-                                "direction": "short",
-                                "leg": "remainder",
-                                "entry_price": entry,
-                                "exit_price": exit_px,
-                                "pnl": float(pnl),
-                                "exit_hit": "sl_be" if partial_done else "sl",
-                            }
-                        )
+                        record_exit(pos, sl, qty_rem, "sl_be" if partial_done else "sl", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
                 if np.isfinite(e21[i]) and bar_c > e21[i]:
-                    exit_px = bar_c
-                    pnl = (entry - exit_px) * qty_rem if qty_rem > 0 else 0.0
                     if qty_rem > 0:
-                        capital += pnl
-                        trades.append(
-                            {
-                                "entry_time": pos["entry_time"],
-                                "exit_time": ts.iloc[i],
-                                "direction": "short",
-                                "leg": "remainder",
-                                "entry_price": entry,
-                                "exit_price": exit_px,
-                                "pnl": float(pnl),
-                                "exit_hit": "ema21_close",
-                            }
-                        )
+                        record_exit(pos, bar_c, qty_rem, "ema21_close", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
                 tp_lvl = next_sr_target(h, l, ph, pl, i, "short", entry, lb * 4)
                 if tp_lvl is not None and bar_l <= tp_lvl and qty_rem > 0:
-                    exit_px = tp_lvl
-                    pnl = (entry - exit_px) * qty_rem
-                    capital += pnl
-                    trades.append(
-                        {
-                            "entry_time": pos["entry_time"],
-                            "exit_time": ts.iloc[i],
-                            "direction": "short",
-                            "leg": "remainder",
-                            "entry_price": entry,
-                            "exit_price": exit_px,
-                            "pnl": float(pnl),
-                            "exit_hit": "next_support",
-                        }
-                    )
+                    record_exit(pos, tp_lvl, qty_rem, "next_support", i, "remainder")
                     pos = None
-                    equity.append(capital)
-                    equity_ts.append(ts.iloc[i])
                     continue
 
             continue
 
-        # flat — look for entry at bar i close, fill next open
         if not session_ok(ts.iloc[i]):
             continue
 
@@ -477,11 +422,6 @@ def run_backtest(symbol: str, tf: str) -> dict:
         chase_sup = abs(c[i] - sr.support) <= CHASE_PIPS * pip
         chase_res = abs(c[i] - sr.resistance) <= CHASE_PIPS * pip
 
-        qty_total = FIXED_NOTIONAL / c[i]
-        qty_part = qty_total * PARTIAL_FRAC
-        qty_rem = qty_total * (1.0 - PARTIAL_FRAC)
-
-        # long
         if (
             support_touch_valid(l, h, c, i, sr.support, e9[i], e21[i], pip, RECOVERY_BARS)
             and chase_sup
@@ -489,21 +429,23 @@ def run_backtest(symbol: str, tf: str) -> dict:
             and np.isfinite(rsi[i])
             and rsi[i] > 50
         ):
-            entry = float(o[i + 1])
-            sl = min(l[i], sr.support) - SL_BUFFER_PIPS * pip
-            if sl < entry:
+            raw_entry = float(o[i + 1])
+            fill = entry_fill(raw_entry, "long", symbol, pip)
+            sl_raw = min(l[i], sr.support) - SL_BUFFER_PIPS * pip
+            if sl_raw < fill:
+                _, qty_part, qty_rem = position_size(capital, fill)
                 pos = {
                     "dir": "long",
-                    "entry": entry,
-                    "sl": sl,
+                    "entry": fill,
+                    "sl": sl_raw,
                     "qty_part": qty_part,
                     "qty_rem": qty_rem,
                     "partial_done": False,
                     "entry_time": ts.iloc[i + 1],
+                    "equity_at_entry": capital,
                 }
             continue
 
-        # short
         if (
             resistance_touch_valid(h, l, o, c, i, sr.resistance, e9[i], e21[i], pip, RECOVERY_BARS)
             and chase_res
@@ -511,48 +453,37 @@ def run_backtest(symbol: str, tf: str) -> dict:
             and np.isfinite(rsi[i])
             and rsi[i] < 50
         ):
-            entry = float(o[i + 1])
-            sl = max(h[i], sr.resistance) + SL_BUFFER_PIPS * pip
-            if sl > entry:
+            raw_entry = float(o[i + 1])
+            fill = entry_fill(raw_entry, "short", symbol, pip)
+            sl_raw = max(h[i], sr.resistance) + SL_BUFFER_PIPS * pip
+            if sl_raw > fill:
+                _, qty_part, qty_rem = position_size(capital, fill)
                 pos = {
                     "dir": "short",
-                    "entry": entry,
-                    "sl": sl,
+                    "entry": fill,
+                    "sl": sl_raw,
                     "qty_part": qty_part,
                     "qty_rem": qty_rem,
                     "partial_done": False,
                     "entry_time": ts.iloc[i + 1],
+                    "equity_at_entry": capital,
                 }
 
-    # EOD close
     if pos is not None:
-        exit_px = float(c[-1])
         qty_rem = pos["qty_rem"]
         if qty_rem > 0:
-            pnl = (
-                (exit_px - pos["entry"]) * qty_rem
-                if pos["dir"] == "long"
-                else (pos["entry"] - exit_px) * qty_rem
-            )
-            capital += pnl
-            trades.append(
-                {
-                    "entry_time": pos["entry_time"],
-                    "exit_time": ts.iloc[-1],
-                    "direction": pos["dir"],
-                    "leg": "remainder",
-                    "entry_price": pos["entry"],
-                    "exit_price": exit_px,
-                    "pnl": float(pnl),
-                    "exit_hit": "eod",
-                }
-            )
-        equity.append(capital)
-        equity_ts.append(ts.iloc[-1])
+            record_exit(pos, float(c[-1]), qty_rem, "eod", len(df) - 1, "remainder")
 
     tdf = pd.DataFrame(trades)
     eq = pd.Series(equity, index=pd.to_datetime(equity_ts, utc=True))
-    return {"symbol": symbol, "tf": tf, "trades": tdf, "equity": eq, "final": capital}
+    return {
+        "symbol": symbol,
+        "tf": tf,
+        "trades": tdf,
+        "equity": eq,
+        "final": capital,
+        "total_fees": total_fees,
+    }
 
 
 def aggregate_trades(tdf: pd.DataFrame) -> pd.DataFrame:
@@ -570,9 +501,13 @@ def aggregate_trades(tdf: pd.DataFrame) -> pd.DataFrame:
     return g
 
 
-def summarize(label: str, tdf: pd.DataFrame, eq: pd.Series, final: float) -> str:
+def summarize(label: str, tdf: pd.DataFrame, eq: pd.Series, final: float, fees: float = 0.0) -> str:
     agg = aggregate_trades(tdf)
     lines = ["=" * 90, f"RESULTS — {label}", "=" * 90]
+    lines.append(
+        f"Capital=${INITIAL_CAPITAL:,.0f} | Position={POSITION_PCT*100:.0f}%/trade (compounding) | "
+        f"Slippage: XAU {XAU_SLIP_PIPS}pip/side, PAXG ~{CRYPTO_COSTS.round_trip_friction()*100:.2f}% RT"
+    )
     if agg.empty:
         lines.append("No trades.")
         return "\n".join(lines)
@@ -590,6 +525,7 @@ def summarize(label: str, tdf: pd.DataFrame, eq: pd.Series, final: float) -> str
         f"PF={pf:.3f}  GP=${gp:.2f}  GL=${gl:.2f}",
         f"Net=${net:.2f} ({net/INITIAL_CAPITAL*100:+.2f}%)  Final=${final:.2f}",
         f"MaxDD=${float(dd.min()):.2f} ({float(dd.min())/INITIAL_CAPITAL*100:.2f}%)",
+        f"Total commission paid=${fees:.2f}",
         f"Leg exits: {tdf.exit_hit.value_counts().to_dict() if not tdf.empty else {}}",
     ]
     return "\n".join(lines)
@@ -608,21 +544,24 @@ def plot_eq(label: str, eq: pd.Series, path: Path, net_pct: float):
 
 
 def main():
-    print("EMA Pocket Scalp — 1m & 5m backtest (XAUUSD OANDA-proxy + PAXG Binance)")
+    print(
+        f"EMA Pocket Scalp — compounding {POSITION_PCT*100:.0f}%/trade + slippage "
+        f"(XAUUSD OANDA-proxy + PAXG Binance)"
+    )
     rows = []
     texts = []
     for sym in ("XAUUSD", "PAXGUSDT"):
         for tf in ("1m", "5m"):
             print(f"\n>>> {sym} {tf}")
             out = run_backtest(sym, tf)
-            tdf, eq, final = out["trades"], out["equity"], out["final"]
+            tdf, eq, final, fees = out["trades"], out["equity"], out["final"], out["total_fees"]
             label = f"{sym} {tf}"
-            text = summarize(label, tdf, eq, final)
+            text = summarize(label, tdf, eq, final, fees)
             print(text)
             texts.append(text)
             net = final - INITIAL_CAPITAL
             net_pct = net / INITIAL_CAPITAL * 100
-            stem = f"{sym.lower()}_{tf}"
+            stem = f"{sym.lower()}_{tf}_compound"
             agg = aggregate_trades(tdf)
             if not tdf.empty:
                 tdf.to_csv(OUT / f"{stem}_legs.csv", index=False)
@@ -635,6 +574,7 @@ def main():
                 {
                     "symbol": sym,
                     "timeframe": tf,
+                    "position_pct": POSITION_PCT,
                     "trades": len(agg),
                     "wins": int((agg.pnl > 0).sum()) if len(agg) else 0,
                     "losses": int((agg.pnl < 0).sum()) if len(agg) else 0,
@@ -646,15 +586,27 @@ def main():
                     ),
                     "net": net,
                     "net_pct": net_pct,
+                    "final_capital": final,
+                    "total_fees": fees,
                     "max_dd_pct": float((eq - eq.cummax()).min() / INITIAL_CAPITAL * 100) if len(eq) else 0.0,
                 }
             )
     rdf = pd.DataFrame(rows)
-    rdf.to_csv(OUT / "summary.csv", index=False)
-    rdf.to_csv(FLAT / "ema_pocket_scalp_summary.csv", index=False)
-    (OUT / "report.txt").write_text("\n\n".join(texts) + "\n")
-    (FLAT / "ema_pocket_scalp_report.txt").write_text("\n\n".join(texts) + "\n")
+    rdf.to_csv(OUT / "summary_compound.csv", index=False)
+    rdf.to_csv(FLAT / "ema_pocket_scalp_compound_summary.csv", index=False)
+    (OUT / "report_compound.txt").write_text("\n\n".join(texts) + "\n")
+    (FLAT / "ema_pocket_scalp_compound_report.txt").write_text("\n\n".join(texts) + "\n")
     meta = {
+        "initial_capital": INITIAL_CAPITAL,
+        "position_pct": POSITION_PCT,
+        "compounding": True,
+        "xau_slip_pips_per_side": XAU_SLIP_PIPS,
+        "crypto_costs": {
+            "commission_rate": CRYPTO_COSTS.commission_rate,
+            "half_spread": CRYPTO_COSTS.half_spread,
+            "slippage": CRYPTO_COSTS.slippage,
+            "round_trip_pct": CRYPTO_COSTS.round_trip_friction() * 100,
+        },
         "ema_fast": EMA_FAST,
         "ema_slow": EMA_SLOW,
         "rsi_len": RSI_LEN,
@@ -665,8 +617,9 @@ def main():
         "session_utc": f"{SESSION_START_H}:00-{SESSION_END_H}:00",
         "pip_sizes": PIP_SIZE,
     }
-    (OUT / "params.json").write_text(json.dumps(meta, indent=2))
-    print("\nSUMMARY")
+    (OUT / "params_compound.json").write_text(json.dumps(meta, indent=2))
+    (FLAT / "ema_pocket_scalp_compound_params.json").write_text(json.dumps(meta, indent=2))
+    print("\nSUMMARY (compounding + slippage)")
     print(rdf.to_string(index=False))
     print(f"Artifacts → {OUT}")
 
