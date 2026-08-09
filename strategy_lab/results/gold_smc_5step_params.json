@@ -1,0 +1,11 @@
+{
+  "swing_len_1h": 3,
+  "swing_len_15m": 3,
+  "swing_len_5m": 3,
+  "impulse_atr_mult": 1.2,
+  "sl_buffer": 0.5,
+  "initial_capital": 10000.0,
+  "fixed_notional": 3000.0,
+  "days": 365,
+  "notes": "Algorithmic encoding of 5-step gold SMC scalping video rules"
+}
