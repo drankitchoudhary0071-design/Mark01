@@ -42,3 +42,8 @@ venv/
 !results/pmts_fx5_sl075_usdjpy_equity.png
 !results/pmts_fx5_sl075_audusd_equity.png
 !results/pmts_fx5_sl075_usdcad_equity.png
+!results/pmts_xau_5y_report.txt
+!results/pmts_xau_5y_sl075_equity.png
+!results/pmts_xau_5y_sl075_trades.csv
+!results/pmts_xau_5y_sl075_yearly.csv
+!results/pmts_xau_5y_modes_summary.csv
