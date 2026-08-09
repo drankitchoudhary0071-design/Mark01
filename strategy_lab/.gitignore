@@ -96,3 +96,12 @@ venv/
 !results/ema_pocket_target_sweep_xauusd_5m.png
 !results/ema_pocket_target_sweep_paxgusdt_1m.png
 !results/ema_pocket_target_sweep_paxgusdt_5m.png
+!results/ema_pocket_v5_summary.csv
+!results/ema_pocket_v5_xauusd_1m_trades.csv
+!results/ema_pocket_v5_xauusd_5m_trades.csv
+!results/ema_pocket_v5_paxgusdt_1m_trades.csv
+!results/ema_pocket_v5_paxgusdt_5m_trades.csv
+!results/ema_pocket_v5_xauusd_1m_equity.png
+!results/ema_pocket_v5_xauusd_5m_equity.png
+!results/ema_pocket_v5_paxgusdt_1m_equity.png
+!results/ema_pocket_v5_paxgusdt_5m_equity.png

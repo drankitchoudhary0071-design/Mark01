@@ -1,0 +1,7 @@
+{
+  "ema_fast": 9,
+  "ema_slow": 21,
+  "pivot_len": 5,
+  "rr": 2.0,
+  "position_pct": 0.05
+}
