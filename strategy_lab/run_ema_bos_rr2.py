@@ -124,7 +124,14 @@ def close_pnl(direction: str, entry: float, exit_raw: float, qty: float, symbol:
     return gross - fees, fees
 
 
-def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
+def run_backtest(
+    symbol: str,
+    tf: str,
+    df: pd.DataFrame | None = None,
+    *,
+    use_volume_filter: bool = False,
+    use_session_filter: bool = False,
+) -> dict:
     if df is None:
         df = load_or_fetch(symbol, tf, DAYS)
     o = df["open"].to_numpy(float)
@@ -181,7 +188,7 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
                 pos = None
             continue
 
-        if not in_session(ts.iloc[i]):
+        if use_session_filter and not in_session(ts.iloc[i]):
             continue
 
         sh, slo = swing_hi[i], swing_lo[i]
@@ -189,7 +196,7 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
             continue
         if not (np.isfinite(e9[i]) and np.isfinite(e21[i])):
             continue
-        if not (np.isfinite(vma[i]) and v[i] >= vma[i] * VOL_MULT):
+        if use_volume_filter and not (np.isfinite(vma[i]) and v[i] >= vma[i] * VOL_MULT):
             continue
 
         above_emas = c[i] > e9[i] and c[i] > e21[i]
@@ -250,6 +257,8 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
         "total_fees": total_fees,
         "max_dd_usd": max_dd_usd,
         "max_dd_pct": max_dd_pct,
+        "use_volume_filter": use_volume_filter,
+        "use_session_filter": use_session_filter,
     }
 
 
@@ -265,87 +274,76 @@ def plot_eq(label: str, eq: pd.Series, path: Path, net_pct: float):
     plt.close(fig)
 
 
+def summarize_run(out: dict) -> dict:
+    tdf, eq, final = out["trades"], out["equity"], out["final"]
+    n = len(tdf)
+    net = final - INITIAL_CAPITAL
+    return {
+        "symbol": out["symbol"],
+        "timeframe": out["tf"],
+        "filter_mode": out.get("filter_mode", ""),
+        "volume_filter": out.get("use_volume_filter", False),
+        "session_filter": out.get("use_session_filter", False),
+        "trades": n,
+        "wins": int((tdf.pnl > 0).sum()) if n else 0,
+        "wr": float((tdf.pnl > 0).mean() * 100) if n else 0.0,
+        "pf": (
+            float(tdf.loc[tdf.pnl > 0, "pnl"].sum() / abs(tdf.loc[tdf.pnl < 0, "pnl"].sum()))
+            if n and (tdf.pnl < 0).any() and (tdf.pnl > 0).any()
+            else float("nan")
+        ),
+        "net": net,
+        "net_pct": net / INITIAL_CAPITAL * 100,
+        "final_capital": final,
+        "max_dd_usd": out["max_dd_usd"],
+        "max_dd_pct": out["max_dd_pct"],
+        "total_fees": out["total_fees"],
+        "tp_hits": int((tdf.exit_hit == "tp").sum()) if n else 0,
+        "sl_hits": int((tdf.exit_hit == "sl").sum()) if n else 0,
+    }
+
+
+FILTER_MODES = [
+    ("baseline", False, False),
+    ("volume_only", True, False),
+    ("session_only", False, True),
+    ("both", True, True),
+]
+
+
 def main():
     print(
-        f"9/21 EMA BOS Long — 1:2 RR | {POSITION_PCT*100:.0f}% compound | "
-        f"volume filter | skip Asian ({SESSION_START_H:02d}-{SESSION_END_H:02d} UTC) | slippage"
+        f"9/21 EMA BOS — filter comparison | {POSITION_PCT*100:.0f}% compound + slippage\n"
+        f"Modes: baseline | volume_only | session_only | both"
     )
     rows = []
     for sym in ("XAUUSD", "PAXGUSDT"):
         for tf in ("1m", "5m"):
-            print(f"\n>>> {sym} {tf}")
-            out = run_backtest(sym, tf)
-            tdf, eq, final = out["trades"], out["equity"], out["final"]
-            n = len(tdf)
-            net = final - INITIAL_CAPITAL
-            net_pct = net / INITIAL_CAPITAL * 100
-            wr = float((tdf.pnl > 0).mean() * 100) if n else 0.0
-            pf = (
-                float(tdf.loc[tdf.pnl > 0, "pnl"].sum() / abs(tdf.loc[tdf.pnl < 0, "pnl"].sum()))
-                if n and (tdf.pnl < 0).any() and (tdf.pnl > 0).any()
-                else float("nan")
-            )
-            max_dd_usd = out["max_dd_usd"]
-            max_dd_pct = out["max_dd_pct"]
-            tp_hits = int((tdf.exit_hit == "tp").sum()) if n else 0
-            sl_hits = int((tdf.exit_hit == "sl").sum()) if n else 0
-            print(
-                f"Trades={n} WR={wr:.1f}% PF={pf:.2f} TP={tp_hits} SL={sl_hits}\n"
-                f"  Net=${net:.2f} ({net_pct:+.2f}%) Final=${final:.2f}\n"
-                f"  MaxDD=${max_dd_usd:.2f} ({max_dd_pct:.2f}%) Fees=${out['total_fees']:.2f}"
-            )
-            stem = f"{sym.lower()}_{tf}_filtered"
-            if not tdf.empty:
-                tdf.to_csv(OUT / f"{stem}_trades.csv", index=False)
-                tdf.to_csv(FLAT / f"ema_bos_rr2_{stem}_trades.csv", index=False)
-            eq.to_csv(OUT / f"{stem}_equity.csv", header=["equity"])
-            plot_eq(f"{sym} {tf} filtered", eq, OUT / f"{stem}_equity.png", net_pct)
-            plot_eq(f"{sym} {tf} filtered", eq, FLAT / f"ema_bos_rr2_{stem}_equity.png", net_pct)
-            rows.append(
-                {
-                    "symbol": sym,
-                    "timeframe": tf,
-                    "trades": n,
-                    "wins": int((tdf.pnl > 0).sum()) if n else 0,
-                    "wr": wr,
-                    "pf": pf,
-                    "tp_hits": tp_hits,
-                    "sl_hits": sl_hits,
-                    "net": net,
-                    "net_pct": net_pct,
-                    "final_capital": final,
-                    "max_dd_usd": max_dd_usd,
-                    "max_dd_pct": max_dd_pct,
-                    "total_fees": out["total_fees"],
-                }
-            )
+            df = load_or_fetch(sym, tf, DAYS)
+            print(f"\n{'='*60}\n{sym} {tf}")
+            for mode_name, vol_f, sess_f in FILTER_MODES:
+                out = run_backtest(sym, tf, df, use_volume_filter=vol_f, use_session_filter=sess_f)
+                out["filter_mode"] = mode_name
+                s = summarize_run(out)
+                rows.append(s)
+                print(
+                    f"  [{mode_name:13s}] trades={s['trades']:4d} WR={s['wr']:5.1f}% PF={s['pf']:5.2f} "
+                    f"net={s['net_pct']:+6.2f}% MaxDD={s['max_dd_pct']:6.2f}% (${s['max_dd_usd']:.0f})"
+                )
+                if mode_name in ("volume_only", "session_only", "both"):
+                    stem = f"{sym.lower()}_{tf}_{mode_name}"
+                    out["trades"].to_csv(OUT / f"{stem}_trades.csv", index=False)
+                    out["equity"].to_csv(OUT / f"{stem}_equity.csv", header=["equity"])
+
     rdf = pd.DataFrame(rows)
-    rdf.to_csv(OUT / "summary_filtered.csv", index=False)
-    rdf.to_csv(FLAT / "ema_bos_rr2_filtered_summary.csv", index=False)
-    (OUT / "params_filtered.json").write_text(
-        json.dumps(
-            {
-                "ema_fast": EMA_FAST,
-                "ema_slow": EMA_SLOW,
-                "pivot_len": PIVOT_LEN,
-                "rr": RR,
-                "position_pct": POSITION_PCT,
-                "vol_ma_len": VOL_MA_LEN,
-                "vol_mult": VOL_MULT,
-                "session_utc": f"{SESSION_START_H:02d}:00-{SESSION_END_H:02d}:00",
-                "xau_slip_pips": XAU_SLIP_PIPS,
-                "crypto_commission": CRYPTO_COSTS.commission_rate,
-                "compounding": True,
-            },
-            indent=2,
-        )
-    )
-    print("\nSUMMARY (volume + session filter, compound + slippage)")
-    print(
-        rdf[
-            ["symbol", "timeframe", "trades", "wr", "pf", "net_pct", "final_capital", "max_dd_usd", "max_dd_pct", "total_fees"]
-        ].to_string(index=False)
-    )
+    rdf.to_csv(OUT / "filter_compare.csv", index=False)
+    rdf.to_csv(FLAT / "ema_bos_rr2_filter_compare.csv", index=False)
+
+    print("\n" + "=" * 90)
+    print("FILTER COMPARISON SUMMARY")
+    print("=" * 90)
+    cols = ["symbol", "timeframe", "filter_mode", "trades", "wr", "pf", "net_pct", "max_dd_usd", "max_dd_pct", "total_fees"]
+    print(rdf[cols].to_string(index=False))
 
 
 if __name__ == "__main__":
