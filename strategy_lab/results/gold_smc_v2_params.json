@@ -1,0 +1,17 @@
+{
+  "version": "v2_video_faithful",
+  "struct_len_1h": 5,
+  "struct_len_15m": 5,
+  "internal_len_15m": 2,
+  "internal_len_5m": 2,
+  "tp_swing_len_15m": 3,
+  "impulse_atr_mult": 1.5,
+  "sl_buffer": 0.3,
+  "steps": [
+    "1H+15M BOS alignment",
+    "15M OB/FVG POI + internal liquidity",
+    "wait for price in POI",
+    "liquidity sweep \u2192 aggressive or conservative MS-retest",
+    "TP nearest logical 15M swing; SL sweep candle extreme"
+  ]
+}

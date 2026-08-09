@@ -1,0 +1,38 @@
+TradingView multi-indicator MTF — PROFITABLE results only
+BTCUSDT | 1D HTF → 4H LTF | ~0.30% RT costs | WF compounded
+
+1. ema_macd_stoch [default]
+   Indicators: EMA, MACD, Stochastic, ATR
+   HTF EMA trend + LTF MACD cross + Stochastic filter
+   WF OOS: n=46 WR=47.8% ExpR=+0.271 PF=1.46 DD=-5.7% RET=+12.7% → $11,272
+   Holdout: n=17 PF=1.04 RET=+0.4%
+
+2. ema_rsi_macd [rsi_os=35,rsi_ob=65]
+   Indicators: EMA, RSI, MACD, ATR
+   HTF EMA50/200 trend + LTF RSI cross + MACD histogram confirm
+   WF OOS: n=16 WR=62.5% ExpR=+0.679 PF=2.52 DD=-1.2% RET=+11.3% → $11,126
+   Holdout: n=7 PF=1.95 RET=+3.4%
+
+3. ema_adx_stoch [adx_min=25]
+   Indicators: EMA, ADX, Stochastic, ATR
+   HTF EMA+ADX strength + LTF Stochastic %K/%D cross in zone
+   WF OOS: n=32 WR=50.0% ExpR=+0.271 PF=1.46 DD=-4.8% RET=+8.7% → $10,872
+   Holdout: n=9 PF=0.75 RET=-1.8%
+
+4. ema_adx_stoch [default]
+   Indicators: EMA, ADX, Stochastic, ATR
+   HTF EMA+ADX strength + LTF Stochastic %K/%D cross in zone
+   WF OOS: n=33 WR=48.5% ExpR=+0.258 PF=1.44 DD=-4.8% RET=+8.5% → $10,851
+   Holdout: n=10 PF=0.64 RET=-2.9%
+
+5. ema_adx_stoch [stop_atr=2.0,tp_atr=4.0]
+   Indicators: EMA, ADX, Stochastic, ATR
+   HTF EMA+ADX strength + LTF Stochastic %K/%D cross in zone
+   WF OOS: n=28 WR=50.0% ExpR=+0.170 PF=1.32 DD=-4.3% RET=+4.7% → $10,465
+   Holdout: n=7 PF=0.74 RET=-1.3%
+
+6. ema_macd_stoch [stop_atr=2.0,tp_atr=4.0]
+   Indicators: EMA, MACD, Stochastic, ATR
+   HTF EMA trend + LTF MACD cross + Stochastic filter
+   WF OOS: n=39 WR=41.0% ExpR=+0.124 PF=1.21 DD=-5.8% RET=+4.6% → $10,460
+   Holdout: n=13 PF=0.99 RET=-0.1%

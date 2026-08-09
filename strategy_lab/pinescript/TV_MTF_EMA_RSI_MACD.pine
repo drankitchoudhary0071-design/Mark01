@@ -1,0 +1,90 @@
+//@version=5
+// TV MTF: EMA + RSI + MACD  (best PF / holdout among 4-indicator set)
+// Port of strategy_lab tv_mtf_ema_rsi_macd (RSI 35/65)
+//
+// ★ SETUP: BTCUSDT.P — timeframe **4 hours**
+// Commission 0.1% | ~1 year
+//
+// HTF Daily: EMA50 vs EMA200 regime
+// LTF 4H  : RSI cross 35/65 + MACD histogram same-side confirm
+// Stop 1.5×ATR / TP 3.0×ATR | risk 1% equity
+//
+// Lab WF OOS BTC: ~16 trades, WR~62%, PF~2.52, ret~+11%, holdout PF~1.95
+
+strategy(
+     title                   = "TV MTF EMA+RSI+MACD",
+     shorttitle              = "TV-EMA-RSI-MACD",
+     overlay                 = true,
+     pyramiding              = 0,
+     process_orders_on_close = true,
+     calc_on_every_tick      = false,
+     initial_capital         = 10000,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 1000,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 3
+ )
+
+grp = "Signal"
+emaFast = input.int(50, "Daily EMA fast", group=grp)
+emaSlow = input.int(200, "Daily EMA slow", group=grp)
+htfTf   = input.timeframe("D", "HTF", group=grp)
+rsiLen  = input.int(14, "RSI period", group=grp)
+osLvl   = input.int(35, "RSI oversold cross-up", group=grp)
+obLvl   = input.int(65, "RSI overbought cross-down", group=grp)
+macdFast = input.int(12, "MACD fast", group=grp)
+macdSlow = input.int(26, "MACD slow", group=grp)
+macdSig  = input.int(9, "MACD signal", group=grp)
+
+grpR = "Risk"
+atrLen  = input.int(14, "ATR", group=grpR)
+stopAtr = input.float(1.5, "Stop ATR", group=grpR)
+tpAtr   = input.float(3.0, "TP ATR", group=grpR)
+riskPct = input.float(1.0, "Risk %", group=grpR) / 100.0
+
+f_daily() =>
+    eF = ta.ema(close, emaFast)
+    eS = ta.ema(close, emaSlow)
+    trend = eF > eS ? 1 : eF < eS ? -1 : 0
+    [eF, eS, trend]
+
+[dEmaF, dEmaS, dTrend] = request.security(syminfo.tickerid, htfTf, f_daily(), barmerge.gaps_off, barmerge.lookahead_off)
+
+rsiVal = ta.rsi(close, rsiLen)
+[_, _, hist] = ta.macd(close, macdFast, macdSlow, macdSig)
+atrVal = ta.atr(atrLen)
+
+longCond  = dTrend > 0 and ta.crossover(rsiVal, osLvl) and hist > 0
+shortCond = dTrend < 0 and ta.crossunder(rsiVal, obLvl) and hist < 0
+
+longStop  = close - stopAtr * atrVal
+longTp    = close + tpAtr * atrVal
+shortStop = close + stopAtr * atrVal
+shortTp   = close - tpAtr * atrVal
+
+f_qty(entryPrice, stopPrice) =>
+    riskCash = strategy.equity * riskPct
+    dist = math.abs(entryPrice - stopPrice)
+    dist > 0 ? riskCash / dist : na
+
+flat = strategy.position_size == 0
+ok   = not na(atrVal) and atrVal > 0 and not na(dTrend)
+
+if flat and ok and longCond
+    qty = f_qty(close, longStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("LX", from_entry="Long", stop=longStop, limit=longTp)
+
+if flat and ok and shortCond
+    qty = f_qty(close, shortStop)
+    if not na(qty) and qty > 0
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("SX", from_entry="Short", stop=shortStop, limit=shortTp)
+
+plot(dEmaF, "Daily EMA50", color=color.new(color.orange, 30))
+plot(dEmaS, "Daily EMA200", color=color.new(color.blue, 30))
+bgcolor(dTrend > 0 ? color.new(color.teal, 94) : dTrend < 0 ? color.new(color.maroon, 94) : na)
+plotshape(longCond and flat, style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.tiny)
+plotshape(shortCond and flat, style=shape.triangledown, location=location.abovebar, color=color.maroon, size=size.tiny)
