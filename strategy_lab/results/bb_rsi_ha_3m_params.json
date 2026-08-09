@@ -1,0 +1,15 @@
+{
+  "bb_len": 20,
+  "bb_std": 2.0,
+  "rsi_len": 14,
+  "rsi_os": 35.0,
+  "rsi_ob": 65.0,
+  "asia_utc": "00-08",
+  "entry_tf": "3m",
+  "htf": "15m Heikin Ashi (closed bar)",
+  "tp": "BB middle at signal",
+  "sl": "signal candle extreme",
+  "initial_capital": 10000.0,
+  "fixed_notional": 3000.0,
+  "days": 365
+}

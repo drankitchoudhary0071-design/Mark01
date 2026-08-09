@@ -1,0 +1,1 @@
+Baseline loses because SL at LTF swing (±0.09%) is noise-tight: most trades stop out before reaching distant anchor TP. Fib structure can still be OK; exits are the main issue. SL @ 0.7 fib gives structure-based room beyond the golden zone.

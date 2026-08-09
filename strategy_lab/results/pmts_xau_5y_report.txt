@@ -1,0 +1,23 @@
+XAUUSD 5-year backtest (Dukascopy M5 bid ≈ OANDA XAU/USD)
+Period: 2021-08-09 00:00:00+00:00 → 2026-08-07 20:55:00+00:00  bars=354811
+Capital $10000  fixed notional $3000
+
+MODE COMPARISON:
+                         mode  trades  wins  losses        wr       pf        net   net_pct  max_dd_pct  sl_hits  tp_hits
+         sl_fib0.75_tp_anchor     128    52      76 40.625000 1.260913  532.84862  5.328486   -5.203904       76       52
+          sl_fib0.7_tp_anchor     133    49      84 36.842105 1.303797  566.38850  5.663885   -4.939371       84       49
+baseline_swing0.09_anchor0.14     180    42     138 23.333333 0.934107 -115.36931 -1.153693   -5.109494      138       42
+
+PRIMARY (SL@0.75 fib / TP anchor) YEARLY:
+      trades  wins         pnl         wr
+year                                     
+2021      17     5  -33.177854  29.411765
+2022      27    13   54.007949  48.148148
+2023      26    11  -15.940399  42.307692
+2024      23     8  -52.592625  34.782609
+2025      23     9  -62.321448  39.130435
+2026      12     6  642.872997  50.000000
+
+Long/Short primary:
+  long: n=73 WR=42.5% pnl=$314.59
+  short: n=55 WR=38.2% pnl=$218.26

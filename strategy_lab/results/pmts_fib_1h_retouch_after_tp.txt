@@ -1,0 +1,24 @@
+PMTS Fib 1H — TP hit ke baad retouch entry | PAXG | $10,000 | 365d
+TP = Pine anchor | entry 0.6 | SL buf 3 | hold 72 | costs ~0.30% RT
+
+IMPORTANT
+  Baseline Pine logic ALREADY enters again when flat + price retouches live 0.6 fib
+  after a TP. 17 trades me se ~7 isi tarah ki after-TP re-entries hain.
+
+RESULTS
+--------------------------------------------------------------------------------
+Mode                                      Trades  W/L   WR%   PF   MaxDD   PnL     Ret    Equity
+A) Baseline (live fib after TP)              17  9/8  52.9  1.65  -3.1%  +$339  +3.4%  $10,339
+B) + Locked fib retouch after TP             17  9/8  52.9  1.69  -3.1%  +$360  +3.6%  $10,360
+
+Mode B: same trade count; 3 entries tagged locked-retouch; PnL +$21 better.
+
+Buffer sweep (Mode B)
+  buf2: n=18 WR=50% DD=-3.1% PnL=+$331
+  buf3: n=17 WR=53% DD=-3.1% PnL=+$360  ← best
+  buf4: n=17 WR=53% DD=-3.1% PnL=+$348
+  buf5: n=17 WR=53% DD=-3.1% PnL=+$336
+
+TAKEAWAY
+  Sirf "TP ke baad retouch" on karne se trades dramatically nahi badhte —
+  kyunki woh entry pehle se mil rahi thi. Locked fib se edge thodi improve (+3.6%).
