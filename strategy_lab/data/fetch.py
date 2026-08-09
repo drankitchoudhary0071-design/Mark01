@@ -170,10 +170,20 @@ def load_or_fetch(
         print(f"Loaded cache {path} ({len(df)} bars)")
         return df
 
-    if symbol.upper() == "XAUUSD":
+    if symbol.upper() in {
+        "XAUUSD",
+        "EURUSD",
+        "GBPUSD",
+        "USDJPY",
+        "AUDUSD",
+        "USDCAD",
+        "USDCHF",
+        "NZDUSD",
+    }:
         raise FileNotFoundError(
-            f"Missing {path}. Run strategy_lab/data/fetch_xauusd_dukascopy.sh "
-            "to download Dukascopy XAUUSD (OANDA-style gold spot proxy)."
+            f"Missing {path}. For FX/metals use Dukascopy download "
+            f"(e.g. strategy_lab/data/fetch_xauusd_dukascopy.sh or dukascopy-node) "
+            f"to populate {symbol} cache — not available on Binance."
         )
 
     raw = fetch_ohlcv(symbol, interval, days)

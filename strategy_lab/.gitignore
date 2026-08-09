@@ -29,3 +29,16 @@ venv/
 !results/pmts_sl075_btcusdt_trades.csv
 !results/pmts_sl075_paxgusdt_trades.csv
 !results/pmts_sl075_xauusd_trades.csv
+!results/pmts_fx5_sl075_summary.csv
+!results/pmts_fx5_sl075_report.txt
+!results/pmts_fx5_sl075_combined_equity.png
+!results/pmts_fx5_sl075_eurusd_trades.csv
+!results/pmts_fx5_sl075_gbpusd_trades.csv
+!results/pmts_fx5_sl075_usdjpy_trades.csv
+!results/pmts_fx5_sl075_audusd_trades.csv
+!results/pmts_fx5_sl075_usdcad_trades.csv
+!results/pmts_fx5_sl075_eurusd_equity.png
+!results/pmts_fx5_sl075_gbpusd_equity.png
+!results/pmts_fx5_sl075_usdjpy_equity.png
+!results/pmts_fx5_sl075_audusd_equity.png
+!results/pmts_fx5_sl075_usdcad_equity.png
