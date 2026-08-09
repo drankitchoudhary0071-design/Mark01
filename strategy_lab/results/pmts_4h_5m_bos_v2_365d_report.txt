@@ -1,0 +1,15 @@
+PMTS 4H Fib Golden Zone + 5min BOS Confirmation — v2 (major swings)
+Capital $10,000 | 365 days | risk 1%/trade | chart 5m + HTF 4h
+HTF swingLen=15 | minMovePct=1.5% | Zone 0.5–0.7 | SL=0.7 | TP=anchor
+Fib ALWAYS from latest confirmed swing high + low (no trailing)
+HTF direction = close beyond latest opposite pivot
+
+RESULTS
+-----------------------------------------------------------------------------------------------
+BTCUSDT    full_0.30%   | Trades= 142 W/L=25/117 WR=17.6% PF=0.53 ExpR=-0.254 MaxDD=-30.9% PnL=$-3091 Ret=-30.9% Equity=$6909
+PAXGUSDT   full_0.30%   | Trades= 117 W/L=20/97 WR=17.1% PF=0.31 ExpR=-0.281 MaxDD=-28.2% PnL=$-2819 Ret=-28.2% Equity=$7181
+BTCUSDT    tv_0.1%      | Trades= 142 W/L=26/116 WR=18.3% PF=0.62 ExpR=-0.176 MaxDD=-22.8% PnL=$-2283 Ret=-22.8% Equity=$7717
+PAXGUSDT   tv_0.1%      | Trades= 117 W/L=20/97 WR=17.1% PF=0.43 ExpR=-0.192 MaxDD=-20.3% PnL=$-2033 Ret=-20.3% Equity=$7967
+
+vs v1 (swing=3, trailing fib): BTC was +1.6%/15 trades; PAXG -2.4%/27 trades.
+Lab risk sizing 1%/trade (Pine fixed qty=1 will differ in $ PnL).
