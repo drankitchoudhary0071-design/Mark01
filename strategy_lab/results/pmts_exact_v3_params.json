@@ -5,8 +5,8 @@
   "zone_upper": 0.5,
   "zone_lower": 0.7,
   "ltf_swing_len": 6,
-  "tp_buffer": 6.0,
-  "sl_buffer": 4.0,
+  "sl_pct": 0.09,
+  "tp_pct": 0.14,
   "initial_capital": 10000.0,
   "fixed_notional": 3000.0
 }

@@ -2,6 +2,7 @@
 """
 PMTS 4H Fib Zone + 5m BOS — exact-spec backtest (pandas/numpy only).
 
+SL/TP: swing × (1 ± sl_pct%), anchor × (1 ∓ tp_pct%).
 Runs separately on BTCUSDT and PAXGUSDT 5m × 365d.
 Fixed notional position sizing (see FIXED_NOTIONAL) with $10,000 capital.
 """
@@ -33,8 +34,11 @@ atr_mult = 1.5
 zone_upper = 0.5
 zone_lower = 0.7
 ltf_swing_len = 6
-tp_buffer = 6.0
-sl_buffer = 4.0
+# SL/TP as % of price (Step 8):
+#   long  SL = ltf_swing_low  * (1 - sl_pct/100), TP = anchor_high * (1 - tp_pct/100)
+#   short SL = ltf_swing_high * (1 + sl_pct/100), TP = anchor_low  * (1 + tp_pct/100)
+sl_pct = 0.09
+tp_pct = 0.14
 
 INITIAL_CAPITAL = 10_000.0
 # Fixed notional $ per trade (non-compounding). qty = FIXED_NOTIONAL / entry.
@@ -331,11 +335,15 @@ def run_backtest(symbol: str) -> dict:
 
         entry = float(close[i])
         qty = FIXED_NOTIONAL / entry
+        sl_mult_lo = 1.0 - sl_pct / 100.0
+        sl_mult_hi = 1.0 + sl_pct / 100.0
+        tp_mult_lo = 1.0 - tp_pct / 100.0
+        tp_mult_hi = 1.0 + tp_pct / 100.0
         if long_ok:
             if not np.isfinite(ltf_sl[i]):
                 continue
-            sl = float(ltf_sl[i]) - sl_buffer
-            tp = float(a_hi[i]) - tp_buffer
+            sl = float(ltf_sl[i]) * sl_mult_lo
+            tp = float(a_hi[i]) * tp_mult_lo
             if not (sl < entry < tp):
                 continue
             pos = {
@@ -351,8 +359,8 @@ def run_backtest(symbol: str) -> dict:
         else:
             if not np.isfinite(ltf_sh[i]):
                 continue
-            sl = float(ltf_sh[i]) + sl_buffer
-            tp = float(a_lo[i]) + tp_buffer
+            sl = float(ltf_sh[i]) * sl_mult_hi
+            tp = float(a_lo[i]) * tp_mult_hi
             if not (tp < entry < sl):
                 continue
             pos = {
@@ -497,7 +505,7 @@ def main():
     print(
         f"params: htf_swing={htf_swing_len} atr={atr_len}×{atr_mult} "
         f"zone={zone_upper}/{zone_lower} ltf_swing={ltf_swing_len} "
-        f"tp_buf={tp_buffer} sl_buf={sl_buffer} notional=${FIXED_NOTIONAL}"
+        f"sl_pct={sl_pct}% tp_pct={tp_pct}% notional=${FIXED_NOTIONAL}"
     )
     all_text = []
     for sym in ("BTCUSDT", "PAXGUSDT"):
@@ -523,8 +531,8 @@ def main():
         "zone_upper": zone_upper,
         "zone_lower": zone_lower,
         "ltf_swing_len": ltf_swing_len,
-        "tp_buffer": tp_buffer,
-        "sl_buffer": sl_buffer,
+        "sl_pct": sl_pct,
+        "tp_pct": tp_pct,
         "initial_capital": INITIAL_CAPITAL,
         "fixed_notional": FIXED_NOTIONAL,
     }
