@@ -5,8 +5,11 @@
 Entry (long):
   - Close above 9 EMA AND 21 EMA
   - Close breaks last swing high (BOS)
+  - Volume >= 20-bar average (active market)
+  - Skip Asian session (trade London/NY 07:00–22:00 UTC only)
 Stop:  below last swing low
 Target: 1:2 risk-reward (TP = entry + 2 * risk)
+Sizing: compounding % of equity + slippage/fees
 """
 
 from __future__ import annotations
@@ -33,6 +36,12 @@ EMA_FAST = 9
 EMA_SLOW = 21
 PIVOT_LEN = 5
 RR = 2.0  # 1:2
+VOL_MA_LEN = 20
+VOL_MULT = 1.0  # volume must be >= avg * mult
+
+# London ∪ NY (UTC) — skip Asian dead zone ~00:00–07:00
+SESSION_START_H = 7
+SESSION_END_H = 22
 
 INITIAL_CAPITAL = 10_000.0
 POSITION_PCT = 0.05
@@ -49,6 +58,22 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 def ema(arr: np.ndarray, span: int) -> np.ndarray:
     return pd.Series(arr).ewm(span=span, adjust=False).mean().to_numpy()
+
+
+def vol_sma(volume: np.ndarray, period: int) -> np.ndarray:
+    return pd.Series(volume).rolling(period, min_periods=period).mean().to_numpy()
+
+
+def in_session(ts: pd.Timestamp) -> bool:
+    return SESSION_START_H <= ts.hour < SESSION_END_H
+
+
+def max_drawdown(eq: pd.Series) -> tuple[float, float]:
+    dd = eq - eq.cummax()
+    max_dd_usd = float(dd.min()) if len(dd) else 0.0
+    peak = float(eq.cummax().loc[dd.idxmin()]) if len(dd) and dd.min() < 0 else float(eq.max()) if len(eq) else INITIAL_CAPITAL
+    max_dd_pct = (max_dd_usd / peak * 100) if peak > 0 else 0.0
+    return max_dd_usd, max_dd_pct
 
 
 def running_pivots(high: np.ndarray, low: np.ndarray, left: int, right: int):
@@ -92,11 +117,11 @@ def exit_fill(raw: float, direction: str, symbol: str) -> float:
     return apply_exit_price(raw, direction, CRYPTO_COSTS)
 
 
-def close_pnl(direction: str, entry: float, exit_raw: float, qty: float, symbol: str) -> float:
+def close_pnl(direction: str, entry: float, exit_raw: float, qty: float, symbol: str) -> tuple[float, float]:
     xf = exit_fill(exit_raw, direction, symbol)
     gross = (xf - entry) * qty if direction == "long" else (entry - xf) * qty
     fees = 0.0 if symbol == "XAUUSD" else (entry + xf) * qty * CRYPTO_COSTS.commission_rate
-    return gross - fees
+    return gross - fees, fees
 
 
 def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
@@ -106,14 +131,17 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
     h = df["high"].to_numpy(float)
     l = df["low"].to_numpy(float)
     c = df["close"].to_numpy(float)
+    v = df["volume"].to_numpy(float)
     ts = pd.to_datetime(df["timestamp"], utc=True)
 
     e9 = ema(c, EMA_FAST)
     e21 = ema(c, EMA_SLOW)
+    vma = vol_sma(v, VOL_MA_LEN)
     swing_hi, swing_lo = running_pivots(h, l, PIVOT_LEN, PIVOT_LEN)
 
-    warmup = max(EMA_SLOW, PIVOT_LEN * 2) + 5
+    warmup = max(EMA_SLOW, PIVOT_LEN * 2, VOL_MA_LEN) + 5
     capital = INITIAL_CAPITAL
+    total_fees = 0.0
     trades: list[dict] = []
     equity = [capital]
     equity_ts = [ts.iloc[warmup]]
@@ -129,7 +157,8 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
             elif h[i] >= tp:
                 hit, exit_px = "tp", tp
             if hit:
-                pnl = close_pnl("long", entry, exit_px, qty, symbol)
+                pnl, fees = close_pnl("long", entry, exit_px, qty, symbol)
+                total_fees += fees
                 capital += pnl
                 trades.append(
                     {
@@ -140,6 +169,8 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
                         "sl": sl,
                         "tp": tp,
                         "pnl": pnl,
+                        "fees": fees,
+                        "equity_after": capital,
                         "exit_hit": hit,
                         "risk": entry - sl,
                         "reward": tp - entry,
@@ -150,11 +181,15 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
                 pos = None
             continue
 
-        # signal at bar i close → enter next open
+        if not in_session(ts.iloc[i]):
+            continue
+
         sh, slo = swing_hi[i], swing_lo[i]
         if not (np.isfinite(sh) and np.isfinite(slo)):
             continue
         if not (np.isfinite(e9[i]) and np.isfinite(e21[i])):
+            continue
+        if not (np.isfinite(vma[i]) and v[i] >= vma[i] * VOL_MULT):
             continue
 
         above_emas = c[i] > e9[i] and c[i] > e21[i]
@@ -177,10 +212,12 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
                 "tp": tp,
                 "qty": qty,
                 "entry_time": ts.iloc[i + 1],
+                "equity_at_entry": capital,
             }
 
     if pos is not None:
-        pnl = close_pnl("long", pos["entry"], float(c[-1]), pos["qty"], symbol)
+        pnl, fees = close_pnl("long", pos["entry"], float(c[-1]), pos["qty"], symbol)
+        total_fees += fees
         capital += pnl
         trades.append(
             {
@@ -191,6 +228,8 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
                 "sl": pos["sl"],
                 "tp": pos["tp"],
                 "pnl": pnl,
+                "fees": fees,
+                "equity_after": capital,
                 "exit_hit": "eod",
                 "risk": pos["entry"] - pos["sl"],
                 "reward": pos["tp"] - pos["entry"],
@@ -201,7 +240,17 @@ def run_backtest(symbol: str, tf: str, df: pd.DataFrame | None = None) -> dict:
 
     tdf = pd.DataFrame(trades)
     eq = pd.Series(equity, index=pd.to_datetime(equity_ts, utc=True))
-    return {"symbol": symbol, "tf": tf, "trades": tdf, "equity": eq, "final": capital}
+    max_dd_usd, max_dd_pct = max_drawdown(eq)
+    return {
+        "symbol": symbol,
+        "tf": tf,
+        "trades": tdf,
+        "equity": eq,
+        "final": capital,
+        "total_fees": total_fees,
+        "max_dd_usd": max_dd_usd,
+        "max_dd_pct": max_dd_pct,
+    }
 
 
 def plot_eq(label: str, eq: pd.Series, path: Path, net_pct: float):
@@ -217,7 +266,10 @@ def plot_eq(label: str, eq: pd.Series, path: Path, net_pct: float):
 
 
 def main():
-    print(f"9/21 EMA BOS Long — 1:2 RR | {POSITION_PCT*100:.0f}% compound + slippage")
+    print(
+        f"9/21 EMA BOS Long — 1:2 RR | {POSITION_PCT*100:.0f}% compound | "
+        f"volume filter | skip Asian ({SESSION_START_H:02d}-{SESSION_END_H:02d} UTC) | slippage"
+    )
     rows = []
     for sym in ("XAUUSD", "PAXGUSDT"):
         for tf in ("1m", "5m"):
@@ -233,20 +285,22 @@ def main():
                 if n and (tdf.pnl < 0).any() and (tdf.pnl > 0).any()
                 else float("nan")
             )
-            dd = float((eq - eq.cummax()).min() / INITIAL_CAPITAL * 100) if len(eq) else 0.0
+            max_dd_usd = out["max_dd_usd"]
+            max_dd_pct = out["max_dd_pct"]
             tp_hits = int((tdf.exit_hit == "tp").sum()) if n else 0
             sl_hits = int((tdf.exit_hit == "sl").sum()) if n else 0
             print(
-                f"Trades={n} WR={wr:.1f}% PF={pf:.2f} TP={tp_hits} SL={sl_hits} "
-                f"Net=${net:.2f} ({net_pct:+.2f}%) MaxDD={dd:.2f}%"
+                f"Trades={n} WR={wr:.1f}% PF={pf:.2f} TP={tp_hits} SL={sl_hits}\n"
+                f"  Net=${net:.2f} ({net_pct:+.2f}%) Final=${final:.2f}\n"
+                f"  MaxDD=${max_dd_usd:.2f} ({max_dd_pct:.2f}%) Fees=${out['total_fees']:.2f}"
             )
-            stem = f"{sym.lower()}_{tf}"
+            stem = f"{sym.lower()}_{tf}_filtered"
             if not tdf.empty:
                 tdf.to_csv(OUT / f"{stem}_trades.csv", index=False)
                 tdf.to_csv(FLAT / f"ema_bos_rr2_{stem}_trades.csv", index=False)
             eq.to_csv(OUT / f"{stem}_equity.csv", header=["equity"])
-            plot_eq(f"{sym} {tf}", eq, OUT / f"{stem}_equity.png", net_pct)
-            plot_eq(f"{sym} {tf}", eq, FLAT / f"ema_bos_rr2_{stem}_equity.png", net_pct)
+            plot_eq(f"{sym} {tf} filtered", eq, OUT / f"{stem}_equity.png", net_pct)
+            plot_eq(f"{sym} {tf} filtered", eq, FLAT / f"ema_bos_rr2_{stem}_equity.png", net_pct)
             rows.append(
                 {
                     "symbol": sym,
@@ -260,20 +314,38 @@ def main():
                     "net": net,
                     "net_pct": net_pct,
                     "final_capital": final,
-                    "max_dd_pct": dd,
+                    "max_dd_usd": max_dd_usd,
+                    "max_dd_pct": max_dd_pct,
+                    "total_fees": out["total_fees"],
                 }
             )
     rdf = pd.DataFrame(rows)
-    rdf.to_csv(OUT / "summary.csv", index=False)
-    rdf.to_csv(FLAT / "ema_bos_rr2_summary.csv", index=False)
-    (OUT / "params.json").write_text(
+    rdf.to_csv(OUT / "summary_filtered.csv", index=False)
+    rdf.to_csv(FLAT / "ema_bos_rr2_filtered_summary.csv", index=False)
+    (OUT / "params_filtered.json").write_text(
         json.dumps(
-            {"ema_fast": EMA_FAST, "ema_slow": EMA_SLOW, "pivot_len": PIVOT_LEN, "rr": RR, "position_pct": POSITION_PCT},
+            {
+                "ema_fast": EMA_FAST,
+                "ema_slow": EMA_SLOW,
+                "pivot_len": PIVOT_LEN,
+                "rr": RR,
+                "position_pct": POSITION_PCT,
+                "vol_ma_len": VOL_MA_LEN,
+                "vol_mult": VOL_MULT,
+                "session_utc": f"{SESSION_START_H:02d}:00-{SESSION_END_H:02d}:00",
+                "xau_slip_pips": XAU_SLIP_PIPS,
+                "crypto_commission": CRYPTO_COSTS.commission_rate,
+                "compounding": True,
+            },
             indent=2,
         )
     )
-    print("\nSUMMARY")
-    print(rdf.to_string(index=False))
+    print("\nSUMMARY (volume + session filter, compound + slippage)")
+    print(
+        rdf[
+            ["symbol", "timeframe", "trades", "wr", "pf", "net_pct", "final_capital", "max_dd_usd", "max_dd_pct", "total_fees"]
+        ].to_string(index=False)
+    )
 
 
 if __name__ == "__main__":
